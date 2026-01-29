@@ -1,0 +1,2595 @@
+---
+title: "20240416_GO_Seurat"
+output: html_document
+date: "2025-04-16"
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dplyr)
+library(remotes)
+library(R.utils)
+library(harmony)
+library(hdf5r)
+library(clustree)
+library(RColorBrewer)
+library(tidyverse)
+library(pander)
+library(patchwork)
+library(ggplot2)
+library(BiocManager)
+library(cowplot)
+library(purrr)
+library(scuttle)
+library(SingleCellExperiment)
+library(DropletUtils)
+library(Matrix)
+library(scran)
+library(HGNChelper)
+library(openxlsx)
+library(ggpubr)
+library(presto)
+library(edgeR)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(EnhancedVolcano)
+library(ggrepel)
+library(ggarchery)
+library (colorspace)
+library(paletteer)
+library(fgsea)
+library(pathview)
+library(pheatmap)
+library(goseq)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(DESeq2)
+library(biomaRt)
+library(tidyr)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+```{r, include=FALSE}
+#set the working directory
+setwd("/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged")
+# Specify the folder path and file name
+output_folder <- "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged/Graphs_Neurons_Only"  
+```
+
+# Load the objects
+
+```{r load_object}
+SampleMerged_Int<-readRDS(file ="/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged/Graphs/SampleMerged_Int.rds")
+DimPlot(SampleMerged_Int)
+```
+
+#Subset Neurons
+```{r Neurons, results='hide', message=FALSE}
+NeuronsOnly<-subset(SampleMerged_Int, subset = cell_type == "Neurons")
+DimPlot(NeuronsOnly,  cols = "black")+ 
+  labs(title = "UMAP Neurons")
+background_gene_list <- rownames(NeuronsOnly)
+write.csv(background_gene_list, file = "Background_Gene_List_NeuronsOnly.csv", row.names = FALSE)
+```
+
+#Integration
+```{r Neurons Integration, results='hide', message=FALSE}
+NeuronsOnly[["RNA"]] <- split(NeuronsOnly[["RNA"]], f = NeuronsOnly$SampleID)
+NeuronsOnly<-IntegrateLayers(object=NeuronsOnly, method=CCAIntegration, orig.reduction="pca", new.reduction="integrated.cca", verbose=FALSE)
+# re-join layers after integration
+NeuronsOnly[["RNA"]] <- JoinLayers(NeuronsOnly[["RNA"]])
+
+```
+
+
+# Identify highly variable features
+
+```{r variablefeatures, message=FALSE}
+NeuronsOnly <- FindVariableFeatures(NeuronsOnly, selection.method = 'vst', nfeatures = 2000)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(NeuronsOnly), 20)
+# plot variable features with and without labels
+plot2 <- VariableFeaturePlot(NeuronsOnly)
+plot2 <- LabelPoints(plot = plot2, points = top10, repel = TRUE, max.overlaps = Inf) 
+plot2
+```
+
+# Scaling the data
+
+```{r scaling, message=FALSE}
+all.genes <- rownames(NeuronsOnly)
+NeuronsOnly <- ScaleData(NeuronsOnly, features = all.genes)
+```
+
+# Perform Dimensional Reduction
+
+```{r PCA, message=FALSE}
+NeuronsOnly <- RunPCA(NeuronsOnly, features = VariableFeatures(object = NeuronsOnly))
+# Examine and visualize PCA results
+print(NeuronsOnly$pca, dims = 1:6, nfeatures = 5)
+DimHeatmap(NeuronsOnly, dims = 1:15, cells = 500, balanced = TRUE)
+#Visualization
+DimPlot(NeuronsOnly, reduction='pca', group.by = "SampleID")+ labs(title = "NeuronsOnly PCA Plot Sample")  + theme(plot.title = element_text(hjust = 0.5))
+DimPlot(subset(NeuronsOnly, subset = SampleID == "Sample1"), group.by = "SampleID", reduction = "pca", cols =  "#F68282") + 
+  labs(title = "PCA for Sample1")
+DimPlot(subset(NeuronsOnly, subset = SampleID == "Sample2"), group.by = "SampleID", reduction = "pca", cols =  "#00BA38") + 
+  labs(title = "PCA for Sample2")
+DimPlot(subset(NeuronsOnly, subset = SampleID == "Sample3"), group.by = "SampleID", reduction = "pca", cols =  "#619CFF") + 
+  labs(title = "PCA for Sample3")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample1"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample1")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample2"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample2")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample3"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample3")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample1"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample1")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample2"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample2")
+FeaturePlot(subset(NeuronsOnly, subset = SampleID == "Sample3"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample3")
+
+# Determine the dimensionality + run UMAP
+
+ElbowPlot(NeuronsOnly)
+NeuronsOnly <- RunUMAP(NeuronsOnly, dims = 1:10)
+
+# Visualization
+DimPlot(NeuronsOnly, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
+```
+
+#Clustering
+
+```{r clustering, message=FALSE}
+# Determine the K-nearest neighbor graph
+NeuronsOnly <- FindNeighbors(NeuronsOnly, dims = 1:10)
+# Determine the clusters for 0.1 resolution
+NeuronsOnly <- FindClusters(NeuronsOnly, resolution = 0.6)
+# Visualization
+DimPlot(NeuronsOnly, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
+```
+
+# Cell Annotation
+
+```{r}
+new.cluster.ids <- c("Other Neurons", "Other Neurons", "DA Neurons", "Not Neurons", "Other Neurons", 
+                     "Other Neurons", "Other Neurons", "DA Neurons", "Not Neurons", "DA Neurons", "Other Neurons", "Not Neurons", "Other Neurons")
+names(new.cluster.ids) <- 0:12  # Assign numeric names to the vector elements (0 to 11)
+# Assign the cell type column based on the seurat_clusters
+NeuronsOnly$cell_type <- factor(as.character(new.cluster.ids[NeuronsOnly$seurat_clusters]),
+levels = unique(new.cluster.ids))
+NeuronsOnly <- RenameIdents(NeuronsOnly, new.cluster.ids)
+
+# Plot
+DimPlot(NeuronsOnly)
+DimPlot(subset(NeuronsOnly, idents = c("DA Neurons", "Other Neurons")))
+```
+
+# DEG per sample filtered - DA (NTNvsCTRL and GDNFvsCTRL and GDNFvsNTN)
+
+```{r}
+# Make another column in metadata showing what cells belong to each treatment group
+NeuronsOnly$celltype.and.sampleID <- paste0(NeuronsOnly$cell_type, '_', NeuronsOnly$SampleID)
+Idents(NeuronsOnly) <- NeuronsOnly$celltype.and.sampleID
+
+# Find markers of DA neurons Sample 1 vs 3 (NTN vs CTRL)
+treatment.response.DA.Sample1vs3 <- FindMarkers(NeuronsOnly, ident.1 = 'DA Neurons_Sample1', 
+                                       ident.2 = 'DA Neurons_Sample3')
+write.csv(treatment.response.DA.Sample1vs3, file = "treatment.response.DA.Sample1vs3.csv")
+# Find markers of DA neurons Sample 2 vs 3 (GDNF vs CTRL)
+treatment.response.DA.Sample2vs3 <- FindMarkers(NeuronsOnly, ident.1 = 'DA Neurons_Sample2', 
+                                       ident.2 = 'DA Neurons_Sample3')
+write.csv(treatment.response.DA.Sample2vs3, file = "treatment.response.DA.Sample2vs3.csv")
+# Find markers of DA neurons Sample 2 vs 1 (GDNF vs NTN)
+treatment.response.DA.Sample2vs1 <- FindMarkers(NeuronsOnly, ident.1 = 'DA Neurons_Sample2', 
+                                       ident.2 = 'DA Neurons_Sample1')
+write.csv(treatment.response.DA.Sample2vs1, file = "treatment.response.DA.Sample2vs1.csv")
+#Volcano Plot Sample 1 vs 3 (NTN vs CTRL)
+g<-EnhancedVolcano(treatment.response.DA.Sample1vs3, 
+                lab = rownames(treatment.response.DA.Sample1vs3),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "DA Neurons: NTN vs CTRL" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+#Volcano Plot Sample 2 vs 3 (GDNF vs CTRL)
+g<-EnhancedVolcano(treatment.response.DA.Sample2vs3, 
+                lab = rownames(treatment.response.DA.Sample2vs3),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "DA Neurons: GDNF vs CTRL" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+#Volcano Plot Sample 2 vs 1 (GDNF vs NTN)
+g<-EnhancedVolcano(treatment.response.DA.Sample2vs1, 
+                lab = rownames(treatment.response.DA.Sample2vs1),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "DA Neurons: GDNF vs NTN1" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+
+# Filter Sample 1 vs 3 (NTN vs CTRL)
+treatment.response.DA.Sample1vs3.up <- treatment.response.DA.Sample1vs3 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.DA.Sample1vs3.up.filt <- treatment.response.DA.Sample1vs3 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.DA.Sample1vs3.up, file = "treatment.response.DA.Sample1vs3.up.csv")
+write.csv(treatment.response.DA.Sample1vs3.up.filt, file = "treatment.response.DA.Sample1vs3.up.filt.csv")
+treatment.response.DA.Sample1vs3.up.filt$gene <- rownames(treatment.response.DA.Sample1vs3.up.filt)
+
+# Filter Sample 2 vs 3 (GDNF vs CTRL)
+treatment.response.DA.Sample2vs3.up <- treatment.response.DA.Sample2vs3 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.DA.Sample2vs3.up.filt <- treatment.response.DA.Sample2vs3 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.DA.Sample2vs3.up, file = "treatment.response.DA.Sample2vs3.up.csv")
+write.csv(treatment.response.DA.Sample2vs3.up.filt, file = "treatment.response.DA.Sample2vs3.up.filt.csv")
+treatment.response.DA.Sample2vs3.up.filt$gene <- rownames(treatment.response.DA.Sample2vs3.up.filt)
+
+# Filter Sample 2 vs 1 (GDNF vs NTN)
+treatment.response.DA.Sample2vs1.up <- treatment.response.DA.Sample2vs1 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.DA.Sample2vs1.up.filt <- treatment.response.DA.Sample2vs1 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.DA.Sample2vs1.up, file = "treatment.response.DA.Sample2vs1.up.csv")
+write.csv(treatment.response.DA.Sample2vs1.up.filt, file = "treatment.response.DA.Sample2vs1.up.filt.csv")
+treatment.response.DA.Sample2vs1.up.filt$gene <- rownames(treatment.response.DA.Sample2vs1.up.filt)
+```
+#Plot Volcanos based on set gene list
+
+
+```{r}
+#NTNvsCTRL
+# Prepare data
+df <- treatment.response.DA.Sample1vs3
+df$gene <- rownames(df)
+df$log10_p <- -log10(df$p_val_adj)
+
+# Thresholds
+logfc_threshold <- 0.25
+pval_threshold <- 3
+
+# Assign regulation groups
+df$group <- "NS"
+df$group[df$avg_log2FC > logfc_threshold & df$log10_p > pval_threshold] <- "Upregulated"
+df$group[df$avg_log2FC < -logfc_threshold & df$log10_p > pval_threshold] <- "Downregulated"
+
+# Selected genes to label
+selected_genes <- c("NTN1", "TUBA1A", "FGF13", "SLC9A6", "INA", "NFAT5", "SV2B", "SYN2", "RAB10", "SCN1A", "CTNNA2", "STMN2", "SYP", "GSK3B", "NTNG1", "MAP2", "SYT4", "SEZ6L", "FZD3")
+df$label <- ifelse(df$gene %in% selected_genes, df$gene, NA)
+
+# Plot
+ggplot(df, aes(x = avg_log2FC, y = log10_p)) +
+  geom_point(aes(color = group), size = 0.5, alpha = 0.8) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "royalblue", "NS" = "grey")) +
+  geom_text_repel(aes(label = label), size = 3, max.overlaps = 30, box.padding = 0.5) +
+  scale_x_continuous(limits = c(-3.5, 3.5)) +
+  scale_y_continuous(limits = c(0, 20)) +  # Set y-axis range from 0 to 30
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    legend.position = "none",         # No legend
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 7),
+    axis.line = element_line(),       # Show axis lines
+    panel.border = element_blank(),   # No border box
+    panel.grid = element_blank()      # No gridlines
+  ) +
+  labs(
+    title = "DA Neurons: NTN vs CTRL",
+    x = "Log2 Fold Change",
+    y = "-log10(adjusted p-value)"
+  )
+
+ggsave(filename = file.path(output_folder, "volcano_plot_NTNvsCTRL.png"), width = 4, height = 4, dpi = 300)
+
+#GDNFvsCTRL
+# Prepare data
+df <- treatment.response.DA.Sample2vs3
+df$gene <- rownames(df)
+df$log10_p <- -log10(df$p_val_adj)
+
+# Thresholds
+logfc_threshold <- 0.25
+pval_threshold <- 3
+
+# Assign regulation groups
+df$group <- "NS"
+df$group[df$avg_log2FC > logfc_threshold & df$log10_p > pval_threshold] <- "Upregulated"
+df$group[df$avg_log2FC < -logfc_threshold & df$log10_p > pval_threshold] <- "Downregulated"
+
+# Selected genes to label
+selected_genes <- c( "TUBA1A", "NEFM", "BDNF", "SPRYA", "INA", "SYT1", "RAB3A", "MAP1B", "SYT4", "RET", "SYP", "SYT11", "SYT13", "SLC9A6", "FGF13", "SV2B", "CTNNA2", "STMN2", "FZD3")
+df$label <- ifelse(df$gene %in% selected_genes, df$gene, NA)
+
+# Plot
+ggplot(df, aes(x = avg_log2FC, y = log10_p)) +
+  geom_point(aes(color = group), size = 0.5, alpha = 0.8) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "royalblue", "NS" = "grey")) +
+  geom_text_repel(aes(label = label), size = 3, max.overlaps = 30, box.padding = 0.5) +
+    scale_x_continuous(limits = c(-3.5, 3.5)) +
+  scale_y_continuous(limits = c(0, 100)) +  # Set y-axis range from 0 to 30
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    legend.position = "none",         # No legend
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 7),
+    axis.line = element_line(),       # Show axis lines
+    panel.border = element_blank(),   # No border box
+    panel.grid = element_blank()      # No gridlines
+  ) +
+  labs(
+    title = "DA Neurons: GDNF vs CTRL",
+    x = "Log2 Fold Change",
+    y = "-log10(adjusted p-value)"
+  )
+
+ggsave(filename = file.path(output_folder, "volcano_plot_GDNFvsCTRL.png"), width = 4, height = 4, dpi = 300)
+```
+
+# GO per sample filtered - DA (NTNvsCTRL and GDNFvsCTRL)
+
+```{r}
+#Convert gene symbols to Entrez IDs
+treatment.response.DA.Sample1vs3.up.filt_ids <- bitr(treatment.response.DA.Sample1vs3.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+treatment.response.DA.Sample2vs3.up.filt_ids <- bitr(treatment.response.DA.Sample2vs3.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+treatment.response.DA.Sample2vs1.up.filt_ids <- bitr(treatment.response.DA.Sample2vs1.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+#Perform and save GO enrichment analyses (Cellular Component) for NTN vs CTRL
+treatment.response.DA.Sample1vs3.up.filt.cc.ego <- enrichGO(gene = treatment.response.DA.Sample1vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample1vs3.up.filt_ids, file="treatment.response.DA.Sample1vs3.up.filt_ids.csv")
+write.csv(treatment.response.DA.Sample1vs3.up.filt.cc.ego, file = "treatment.response.DA.Sample1vs3.up.filt.cc.ego.csv")
+
+#Perform and save GO enrichment analyses (Cellular Component) for GDNF vs CTRL
+treatment.response.DA.Sample2vs3.up.filt.cc.ego <- enrichGO(gene = treatment.response.DA.Sample2vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample2vs3.up.filt_ids, file="treatment.response.DA.Sample2vs3.up.filt_ids.csv")
+write.csv(treatment.response.DA.Sample2vs3.up.filt.cc.ego, file = "treatment.response.DA.Sample2vs3.up.filt.cc.ego.csv")
+
+#Perform and save GO enrichment analyses (Cellular Component) for GDNF vs CTRL
+treatment.response.DA.Sample2vs1.up.filt.cc.ego <- enrichGO(gene = treatment.response.DA.Sample2vs1.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample2vs1.up.filt_ids, file="treatment.response.DA.Sample2vs1.up.filt_ids.csv")
+write.csv(treatment.response.DA.Sample2vs1.up.filt.cc.ego, file = "treatment.response.DA.Sample2vs1.up.filt.cc.ego.csv")
+
+#Visualize the results of GO
+p1<-barplot(treatment.response.DA.Sample1vs3.up.filt.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for DA.Sample1vs3.cc")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.DA.Sample2vs3.up.filt.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for DA.Sample2vs3.cc")
+p1 + theme(axis.text.y = element_text(size = 7))
+
+#Compare GOs Results CC
+# Convert enrichment results to data frames
+df1 <- as.data.frame(treatment.response.DA.Sample1vs3.up.filt.cc.ego)
+df2 <- as.data.frame(treatment.response.DA.Sample2vs3.up.filt.cc.ego)
+
+# Find common GO Descriptions
+common_go_desc <- intersect(df1$Description, df2$Description)
+
+# Initialize result data frame
+result <- data.frame(
+  Description = character(),
+  GeneIDs_Sample1 = character(),
+  GeneIDs_Sample2 = character(),
+  Shared_Genes = character(),
+  Num_Shared_Genes = numeric(),
+  GeneRatio_Sample1 = character(),
+  BgRatio_Sample1 = character(),
+  p.adjust_Sample1 = numeric(),
+  qvalue_Sample1 = numeric(),
+  Count_Sample1 = numeric(),
+  GeneRatio_Sample2 = character(),
+  BgRatio_Sample2 = character(),
+  p.adjust_Sample2 = numeric(),
+  qvalue_Sample2 = numeric(),
+  Count_Sample2 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop over common GO Descriptions
+for (desc in common_go_desc) {
+  row1 <- df1[df1$Description == desc, ][1, ]
+  row2 <- df2[df2$Description == desc, ][1, ]
+  
+  genes1 <- unlist(strsplit(row1$geneID, "/"))
+  genes2 <- unlist(strsplit(row2$geneID, "/"))
+  shared_genes <- intersect(genes1, genes2)
+  
+  result <- rbind(result, data.frame(
+    Description = desc,
+    GeneIDs_Sample1 = paste(genes1, collapse = ", "),
+    GeneIDs_Sample2 = paste(genes2, collapse = ", "),
+    Shared_Genes = paste(shared_genes, collapse = ", "),
+    Num_Shared_Genes = length(shared_genes),
+    GeneRatio_Sample1 = row1$GeneRatio,
+    BgRatio_Sample1 = row1$BgRatio,
+    p.adjust_Sample1 = row1$p.adjust,
+    qvalue_Sample1 = row1$qvalue,
+    Count_Sample1 = row1$Count,
+    GeneRatio_Sample2 = row2$GeneRatio,
+    BgRatio_Sample2 = row2$BgRatio,
+    p.adjust_Sample2 = row2$p.adjust,
+    qvalue_Sample2 = row2$qvalue,
+    Count_Sample2 = row2$Count
+  ))
+}
+
+# Save
+write.csv(result, file = "commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.cc.ego.csv")
+commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.cc.ego <- result
+
+# Selected GO terms
+selected_terms <- c( "neuron to neuron synapse", "postsynaptic specialization", "axonal growth cone", "synaptic vescicles", "presynaptic active zone", "main axon"
+)
+
+# Filter for selected terms
+plot_df <- result[result$Description %in% selected_terms, ]
+
+# Reshape into long format and relabel samples as NTN1 and GDNF
+long_plot_df <- plot_df %>%
+  dplyr::select(Description,
+                Count_Sample1, Count_Sample2,
+                p.adjust_Sample1, p.adjust_Sample2) %>%
+  pivot_longer(cols = starts_with("Count_"),
+               names_to = "Sample_Count",
+               values_to = "Count") %>%
+  mutate(Sample = ifelse(grepl("Sample1", Sample_Count), "NTN1", "GDNF")) %>%
+  left_join(
+    plot_df %>%
+      dplyr::select(Description, p.adjust_Sample1, p.adjust_Sample2) %>%
+      pivot_longer(cols = starts_with("p.adjust_"),
+                   names_to = "Sample_padj",
+                   values_to = "p.adjust") %>%
+      mutate(Sample = ifelse(grepl("Sample1", Sample_padj), "NTN1", "GDNF")),
+    by = c("Description", "Sample")
+  )
+
+# Calculate -log10(p.adjust) and reorder terms
+long_plot_df_cc <- long_plot_df %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+
+#Perform and save GO enrichment analyses (BP) for NTN vs CTRL
+treatment.response.DA.Sample1vs3.up.filt.bp.ego <- enrichGO(gene = treatment.response.DA.Sample1vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample1vs3.up.filt.bp.ego, file = "treatment.response.DA.Sample1vs3.up.filt.bp.ego.csv")
+
+#Perform and save GO enrichment analyses (BP) for GDNF vs CTRL
+treatment.response.DA.Sample2vs3.up.filt.bp.ego <- enrichGO(gene = treatment.response.DA.Sample2vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample2vs3.up.filt.bp.ego, file = "treatment.response.DA.Sample2vs3.up.filt.bp.ego.csv")
+
+#Perform and save GO enrichment analyses (BP) for GDNF vs NTN
+treatment.response.DA.Sample2vs1.up.filt.bp.ego <- enrichGO(gene = treatment.response.DA.Sample2vs1.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.DA.Sample2vs1.up.filt.bp.ego, file = "treatment.response.DA.Sample2vs1.up.filt.bp.ego.csv")
+
+#Compare GOs Results BP
+# Convert enrichment results to data frames
+df1 <- as.data.frame(treatment.response.DA.Sample1vs3.up.filt.bp.ego)
+df2 <- as.data.frame(treatment.response.DA.Sample2vs3.up.filt.bp.ego)
+
+# Find common GO Descriptions
+common_go_desc <- intersect(df1$Description, df2$Description)
+
+# Initialize result data frame
+result <- data.frame(
+  Description = character(),
+  GeneIDs_Sample1 = character(),
+  GeneIDs_Sample2 = character(),
+  Shared_Genes = character(),
+  Num_Shared_Genes = numeric(),
+  GeneRatio_Sample1 = character(),
+  BgRatio_Sample1 = character(),
+  p.adjust_Sample1 = numeric(),
+  qvalue_Sample1 = numeric(),
+  Count_Sample1 = numeric(),
+  GeneRatio_Sample2 = character(),
+  BgRatio_Sample2 = character(),
+  p.adjust_Sample2 = numeric(),
+  qvalue_Sample2 = numeric(),
+  Count_Sample2 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop over common GO Descriptions
+for (desc in common_go_desc) {
+  row1 <- df1[df1$Description == desc, ][1, ]
+  row2 <- df2[df2$Description == desc, ][1, ]
+  
+  genes1 <- unlist(strsplit(row1$geneID, "/"))
+  genes2 <- unlist(strsplit(row2$geneID, "/"))
+  shared_genes <- intersect(genes1, genes2)
+  
+  result <- rbind(result, data.frame(
+    Description = desc,
+    GeneIDs_Sample1 = paste(genes1, collapse = ", "),
+    GeneIDs_Sample2 = paste(genes2, collapse = ", "),
+    Shared_Genes = paste(shared_genes, collapse = ", "),
+    Num_Shared_Genes = length(shared_genes),
+    GeneRatio_Sample1 = row1$GeneRatio,
+    BgRatio_Sample1 = row1$BgRatio,
+    p.adjust_Sample1 = row1$p.adjust,
+    qvalue_Sample1 = row1$qvalue,
+    Count_Sample1 = row1$Count,
+    GeneRatio_Sample2 = row2$GeneRatio,
+    BgRatio_Sample2 = row2$BgRatio,
+    p.adjust_Sample2 = row2$p.adjust,
+    qvalue_Sample2 = row2$qvalue,
+    Count_Sample2 = row2$Count
+  ))
+}
+
+# Save
+write.csv(result, file = "commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.bp.ego.csv")
+commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.bp.ego <- result
+
+# Selected GO terms
+selected_terms <- c(
+  "axonogenesis",
+  "synapse assembly",
+  "postsynapse assembly",
+   "neuron projection extension",
+  "axon guidance",
+  "neurotransmitter secretion",
+  "receptor clustering",
+  "neuron cellular homeostasis",
+  "transport along microtubule",
+  "cell communication by electrical coupling",
+  "neuron projection guidance",
+  "regulation of axonogenesis",
+  "neuron projection extension"
+)
+
+# Filter for selected terms
+plot_df <- result[result$Description %in% selected_terms, ]
+
+# Reshape into long format and relabel samples as NTN1 and GDNF
+long_plot_df<- plot_df %>%
+  dplyr::select(Description,
+                Count_Sample1, Count_Sample2,
+                p.adjust_Sample1, p.adjust_Sample2) %>%
+  pivot_longer(cols = starts_with("Count_"),
+               names_to = "Sample_Count",
+               values_to = "Count") %>%
+  mutate(Sample = ifelse(grepl("Sample1", Sample_Count), "NTN1", "GDNF")) %>%
+  left_join(
+    plot_df %>%
+      dplyr::select(Description, p.adjust_Sample1, p.adjust_Sample2) %>%
+      pivot_longer(cols = starts_with("p.adjust_"),
+                   names_to = "Sample_padj",
+                   values_to = "p.adjust") %>%
+      mutate(Sample = ifelse(grepl("Sample1", Sample_padj), "NTN1", "GDNF")),
+    by = c("Description", "Sample")
+  )
+
+# Calculate -log10(p.adjust) and reorder terms
+long_plot_df_bp <- long_plot_df %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+long_plot_df_bp <- long_plot_df %>%
+  mutate(Description = reorder(Description, Count))
+
+# Plot
+combined_long_plot_df <- bind_rows(long_plot_df_bp, long_plot_df_cc) %>%
+  mutate(Sample = factor(Sample, levels = c("NTN1", "GDNF")))
+
+ggplot(combined_long_plot_df, aes(x = Sample, y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradient(low = "pink", high = "darkred", name = "-log10(p.adjust)") +
+  scale_size(range = c(5, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment DA",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+ggplot(combined_long_plot_df, aes(x = Sample, y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradientn(colors = c("#F08080", "#FF6347", "red", "darkred"),  limits = c (0, 25), name = "-log10(p.adjust)") +
+  scale_size(range = c(5, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment DA",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    plot.title = element_text(size = 14, face = "bold"),
+        axis.ticks.length.x = unit(0.1, "cm"),
+    panel.spacing = unit(0.1, "lines")  # Reduce spacing
+  )
+
+ggsave(filename = file.path(output_folder, "combined_GO_plot_DA.png"), width = 8, height = 7, dpi = 300)
+
+ggplot(combined_long_plot_df, aes(x = Sample, y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradientn(
+    colors = c("#F08080", "#FF6347", "red", "darkred"),
+    limits = c(0, 20),
+    name = "-log10(p.adjust)"
+  ) +
+  scale_size(range = c(5, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment DA",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+#Visualize the results of GO
+p1<-barplot(treatment.response.DA.Sample1vs3.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for DA.Sample1vs3.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.DA.Sample2vs3.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for DA.Sample2vs3.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.DA.Sample2vs1.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for DA.Sample2vs1.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+
+# Create a ggplot with custom coloring
+ego_data <- as.data.frame(treatment.response.DA.Sample1vs3.up.filt.bp.ego)
+color_palette <- sequential_hcl(15, palette = "Reds", rev = TRUE)
+ggplot(ego_data[1:15, ], aes(x = reorder(Description, -pvalue), 
+                             y = -log10(pvalue), 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "GO Enrichment Analysis for DA bp", x = "", y = "-log10(pvalue)") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+
+ggplot(ego_data[1:15, ], aes(x = reorder(Description,-pvalue), 
+                             y = Count, 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "GO Enrichment Analysis for DA bp", x = "", y = "GeneCounts") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+```
+
+```{r}
+# Heatmap of specific genes with info from DEG
+# Initialize an empty list to store results for each GO term
+shared_gene_info_list <- list()
+
+# Loop over each selected term 
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.bp.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.DA.Sample1vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample1vs3 <- shared_gene_info_df
+
+# Loop over each selected term for Sample2vs3
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.bp.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.DA.Sample2vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample2vs3 <- shared_gene_info_df
+
+```
+
+```{r}
+# Heatmap of specific genes with info from seurat object for bp
+# Your gene list
+
+# Plot gene_list by pathway
+gene_list_by_pathway <- split(selectedGO_genes_info_Sample2vs3$gene, 
+                              selectedGO_genes_info_Sample2vs3$Description)
+# Reorder and rename samples
+desired_order <- c("Sample3", "Sample2", "Sample1")
+custom_labels <- c("CTRL", "GDNF", "NTN1")
+# Loop through each pathway and generate a heatmap
+heatmap_list <- NULL
+for (pathway in names(gene_list_by_pathway)) {
+  
+  genes <- gene_list_by_pathway[[pathway]]
+  
+  # Average expression matrix
+  avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+  
+  # Scale per gene
+  scaled_expr <- t(scale(t(avg_expr)))  # row-wise scaling
+  
+  # Transpose and reorder rows (samples)
+  scaled_expr_flipped <- t(scaled_expr)[desired_order, ]
+  rownames(scaled_expr_flipped) <- custom_labels
+  
+  # Plot the heatmap
+  ht <- Heatmap(
+    scaled_expr_flipped,
+    name = paste("Scaled Expression -", pathway),  # unique heatmap name
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 1), c("blue", "pink", "red")),
+    row_names_gp = gpar(fontsize = 4),
+    column_names_gp = gpar(fontsize = 4),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = FALSE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 4),
+    height = unit(1.5, "cm") 
+  )
+  
+  # Combine heatmaps
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list + ht
+  }
+}
+
+# Draw combined heatmap
+draw(heatmap_list, gap = unit(1, "mm")) 
+#Save
+png("combined_heatmap.png", width = 2400, height = 3000, res = 600)
+draw(heatmap_list, gap = unit(1, "mm")) 
+dev.off()
+
+# Save as PDF
+pdf("combined_heatmap.pdf", width = 8, height = 10)
+draw(heatmap_list)
+dev.off()
+
+# Save as PNG
+png("combined_heatmap.png", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+# Save as TIFF
+tiff("combined_heatmap.tiff", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+```
+
+```{r}
+# Heatmap of specific genes with info from DEG
+# Selected GO terms
+selected_terms <- c(
+  "neuron to neuron synapse",
+  "growth cone",
+  "synaptic membrane",
+  "site of polarized growth"
+)
+# Initialize an empty list to store results for each GO term
+shared_gene_info_list <- list()
+
+# Loop over each selected term 
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.cc.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.DA.Sample1vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample1vs3 <- shared_gene_info_df
+
+# Loop over each selected term for Sample2vs3
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.DA.Sample1vs3_Sample2vs3.up.filt.cc.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.DA.Sample2vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample2vs3 <- shared_gene_info_df
+
+```
+
+```{r}
+# Heatmap of specific genes with info from seurat object for bp
+# Your gene list
+view(selectedGO_genes_info_Sample2vs3)
+# Plot gene_list by pathway
+gene_list_by_pathway <- split(selectedGO_genes_info_Sample2vs3$gene, 
+                              selectedGO_genes_info_Sample2vs3$Description)
+# Reorder and rename samples
+desired_order <- c("Sample3", "Sample2", "Sample1")
+custom_labels <- c("CTRL", "GDNF", "NTN1")
+# Loop through each pathway and generate a heatmap
+heatmap_list <- NULL
+for (pathway in names(gene_list_by_pathway)) {
+  
+  genes <- gene_list_by_pathway[[pathway]]
+  
+  # Average expression matrix
+  avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+  
+  # Scale per gene
+  scaled_expr <- t(scale(t(avg_expr)))  # row-wise scaling
+  
+  # Transpose and reorder rows (samples)
+  scaled_expr_flipped <- t(scaled_expr)[desired_order, ]
+  rownames(scaled_expr_flipped) <- custom_labels
+  
+  # Plot the heatmap
+  ht <- Heatmap(
+    scaled_expr_flipped,
+    name = paste("Scaled Expression -", pathway),  # unique heatmap name
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 1), c("blue", "pink", "red")),
+    row_names_gp = gpar(fontsize = 4),
+    column_names_gp = gpar(fontsize = 4),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = FALSE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 4),
+    height = unit(1.5, "cm") 
+  )
+  
+  # Combine heatmaps
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list + ht
+  }
+}
+
+# Draw combined heatmap
+draw(heatmap_list, gap = unit(1, "mm")) 
+#Save
+png("combined_heatmap_cc.png", width = 2400, height = 3000, res = 600)
+draw(heatmap_list, gap = unit(1, "mm")) 
+dev.off()
+
+# Save as PDF
+pdf("combined_heatmap_cc.pdf", width = 8, height = 10)
+draw(heatmap_list)
+dev.off()
+
+# Save as PNG
+png("combined_heatmap_cc.png", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+# Save as TIFF
+tiff("combined_heatmap_cc.tiff", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+DAonly<-subset(NeuronsOnly, subset = cell_type == "DA Neurons" )
+DotPlot(DAonly, features = c ("NRXN1", "FZD3", "CTNNA2", "NRCAM", "NCAM1"))
+DotPlot(DAonly, features = c("NRXN1", "FZD3", "CTNNA2", "NRCAM", "NCAM1")) + 
+  theme(axis.text.x = element_text(angle = 45)) +  # Rotate gene names to be diagonal
+  scale_color_gradient(low = "grey", high = "red") +  # Use a red color scale
+  labs(y = NULL, x = NULL) + 
+  scale_y_discrete(labels = c("DA Neurons_Sample1" = "NTN", "DA Neurons_Sample2" = "GDNF", "DA Neurons_Sample3" = "CTRL")) +  # Rename samples
+  theme_minimal()
+
+VlnPlot(DAonly, features = "NRXN1")
+library(forcats)  # for fct_recode function
+
+VlnPlot(DAonly, features = "NRXN1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(DAonly, features = "FZD3") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(DAonly, features = "CTNNA2") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(DAonly, features = "NRCAM") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(DAonly, features = "NCAM1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+
+```
+#DotPlot selected genes
+
+
+# DEG per sample filtered - nonDA (NTNvsCTRL and GDNFvsCTRL and GDNFvsNTN)
+
+```{r}
+# Find markers of nonDA neurons Sample 1 vs 3 (NTN vs CTRL)
+treatment.response.nonDA.Sample1vs3 <- FindMarkers(NeuronsOnly, ident.1 = 'Other Neurons_Sample1', 
+                                       ident.2 = 'Other Neurons_Sample3')
+write.csv(treatment.response.nonDA.Sample1vs3, file = "treatment.response.nonDA.Sample1vs3.csv")
+# Find markers of nonDA neurons Sample 2 vs 3 (GDNF vs CTRL)
+treatment.response.nonDA.Sample2vs3 <- FindMarkers(NeuronsOnly, ident.1 = 'Other Neurons_Sample2', 
+                                       ident.2 = 'Other Neurons_Sample3')
+write.csv(treatment.response.nonDA.Sample2vs3, file = "treatment.response.nonDA.Sample2vs3.csv")
+# Find markers of nonDA neurons Sample 2 vs 1 (GDNF vs NTN)
+treatment.response.nonDA.Sample2vs1 <- FindMarkers(NeuronsOnly, ident.1 = 'Other Neurons_Sample2', 
+                                       ident.2 = 'Other Neurons_Sample1')
+write.csv(treatment.response.nonDA.Sample2vs1, file = "treatment.response.nonDA.Sample2vs1.csv")
+#Volcano Plot Sample 1 vs 3 (NTN vs CTRL)
+g<-EnhancedVolcano(treatment.response.nonDA.Sample1vs3, 
+                lab = rownames(treatment.response.nonDA.Sample1vs3),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "nonDA Neurons: Sample 1 vs 3" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+#Volcano Plot Sample 2 vs 3 (GDNF vs CTRL)
+g<-EnhancedVolcano(treatment.response.nonDA.Sample2vs3, 
+                lab = rownames(treatment.response.nonDA.Sample2vs3),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "nonDA Neurons: Sample 2 vs 3" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+#Volcano Plot Sample 2 vs 1 (GDNF vs NTN)
+g<-EnhancedVolcano(treatment.response.nonDA.Sample2vs1, 
+                lab = rownames(treatment.response.nonDA.Sample2vs1),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "nonDA Neurons: Sample 2 vs 1" ,
+                xlim = c(-5, 5) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+
+# Filter Sample 1 vs 3 (NTN vs CTRL)
+treatment.response.nonDA.Sample1vs3.up <- treatment.response.nonDA.Sample1vs3 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.nonDA.Sample1vs3.up.filt <- treatment.response.nonDA.Sample1vs3 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.nonDA.Sample1vs3.up, file = "treatment.response.nonDA.Sample1vs3.up.csv")
+write.csv(treatment.response.nonDA.Sample1vs3.up.filt, file = "treatment.response.nonDA.Sample1vs3.up.filt.csv")
+treatment.response.nonDA.Sample1vs3.up.filt$gene <- rownames(treatment.response.nonDA.Sample1vs3.up.filt)
+
+# Filter Sample 2 vs 3 (GDNF vs CTRL)
+treatment.response.nonDA.Sample2vs3.up <- treatment.response.nonDA.Sample2vs3 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.nonDA.Sample2vs3.up.filt <- treatment.response.nonDA.Sample2vs3 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.nonDA.Sample2vs3.up, file = "treatment.response.nonDA.Sample2vs3.up.csv")
+write.csv(treatment.response.nonDA.Sample2vs3.up.filt, file = "treatment.response.nonDA.Sample2vs3.up.filt.csv")
+treatment.response.nonDA.Sample2vs3.up.filt$gene <- rownames(treatment.response.nonDA.Sample2vs3.up.filt)
+
+# Filter Sample 2 vs 1 (GDNF vs NTN)
+treatment.response.nonDA.Sample2vs1.up <- treatment.response.nonDA.Sample2vs1 %>%filter(
+    avg_log2FC > 0
+  )
+treatment.response.nonDA.Sample2vs1.up.filt <- treatment.response.nonDA.Sample2vs1 %>%filter(
+    avg_log2FC > 0.25,
+    pct.1 > 0.5,
+    p_val_adj < 0.05
+  )
+# Add row with gene names and save
+write.csv(treatment.response.nonDA.Sample2vs1.up, file = "treatment.response.nonDA.Sample2vs1.up.csv")
+write.csv(treatment.response.nonDA.Sample2vs1.up.filt, file = "treatment.response.nonDA.Sample2vs1.up.filt.csv")
+treatment.response.nonDA.Sample2vs1.up.filt$gene <- rownames(treatment.response.nonDA.Sample2vs1.up.filt)
+```
+
+#Plot Volcanos based on set gene list
+
+```{r}
+
+#GDNFvsCTRL
+# Prepare data
+df <- treatment.response.nonDA.Sample2vs1
+df$gene <- rownames(df)
+df$log10_p <- -log10(df$p_val_adj)
+
+# Thresholds
+logfc_threshold <- 0.25
+pval_threshold <- 3
+
+# Assign regulation groups
+df$group <- "NS"
+df$group[df$avg_log2FC > logfc_threshold & df$log10_p > pval_threshold] <- "Upregulated"
+df$group[df$avg_log2FC < -logfc_threshold & df$log10_p > pval_threshold] <- "Downregulated"
+
+# Selected genes to label
+selected_genes <- c("NTN1", "TUBA1A", "NEFL", "RAB3A", "SYT1", "SLC9A6", "SYNGR3", "INA", "SV2A", "SYT13", "SYT4", "SEMA3B", "VAT1", "SYN1", "MAP1B", "SYP", "VAMP2", "NCAM1", "GAP43")
+df$label <- ifelse(df$gene %in% selected_genes, df$gene, NA)
+
+# Plot
+ggplot(df, aes(x = avg_log2FC, y = log10_p)) +
+  geom_point(aes(color = group), size = 0.5, alpha = 0.8) +
+  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "royalblue", "NS" = "grey")) +
+  geom_text_repel(aes(label = label), size = 3, max.overlaps = 30, box.padding = 0.5) +
+  scale_y_continuous(limits = c(0, 150)) +  # Set y-axis range from 0 to 30
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    legend.position = "none",         # No legend
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 7),
+    axis.line = element_line(),       # Show axis lines
+    panel.border = element_blank(),   # No border box
+    panel.grid = element_blank()      # No gridlines
+  ) +
+  labs(
+    title = "nonDA Neurons: GDNF vs NTN",
+    x = "Log2 Fold Change",
+    y = "-log10(adjusted p-value)"
+  )
+
+ggsave(filename = file.path(output_folder, "volcano_plot_GDNFvsNTN_nonDA.png"), width = 4, height = 4, dpi = 300)
+
+```
+
+# GO per sample filtered - nonDA (NTNvsCTRL and GDNFvsCTRL and GDNFvsNTN)
+
+```{r}
+#Convert gene symbols to Entrez IDs
+treatment.response.nonDA.Sample1vs3.up.filt_ids <- bitr(treatment.response.nonDA.Sample1vs3.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+treatment.response.nonDA.Sample2vs3.up.filt_ids <- bitr(treatment.response.nonDA.Sample2vs3.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+treatment.response.nonDA.Sample2vs1.up.filt_ids <- bitr(treatment.response.nonDA.Sample2vs1.up.filt$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+#Perform and save GO enrichment analyses (Cellular Component) for NTN vs CTRL
+treatment.response.nonDA.Sample1vs3.up.filt.cc.ego <- enrichGO(gene = treatment.response.nonDA.Sample1vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample1vs3.up.filt_ids, file="treatment.response.nonDA.Sample1vs3.up.filt_ids.csv")
+write.csv(treatment.response.nonDA.Sample1vs3.up.filt.cc.ego, file = "treatment.response.nonDA.Sample1vs3.up.filt.cc.ego.csv")
+
+#Perform and save GO enrichment analyses (Cellular Component) for GDNF vs CTRL
+treatment.response.nonDA.Sample2vs3.up.filt.cc.ego <- enrichGO(gene = treatment.response.nonDA.Sample2vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample2vs3.up.filt_ids, file="treatment.response.nonDA.Sample2vs3.up.filt_ids.csv")
+write.csv(treatment.response.nonDA.Sample2vs3.up.filt.cc.ego, file = "treatment.response.nonDA.Sample2vs3.up.filt.cc.ego.csv")
+
+#Perform and save GO enrichment analyses (Cellular Component) for GDNF vs NTN
+treatment.response.nonDA.Sample2vs1.up.filt.cc.ego <- enrichGO(gene = treatment.response.nonDA.Sample2vs1.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample2vs1.up.filt_ids, file="treatment.response.nonDA.Sample2vs1.up.filt_ids.csv")
+write.csv(treatment.response.nonDA.Sample2vs1.up.filt.cc.ego, file = "treatment.response.nonDA.Sample2vs1.up.filt.cc.ego.csv")
+
+#Visualize the results of GO
+p1<-barplot(treatment.response.nonDA.Sample1vs3.up.filt.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample1vs3.cc")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.nonDA.Sample2vs3.up.filt.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample2vs3.cc")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.nonDA.Sample2vs1.up.filt.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample2vs1.cc")
+p1 + theme(axis.text.y = element_text(size = 7))
+
+#Compare GOs Results CC 1vs3 and 2vs3 (NTNvsCTRL and GDNFvsCTRL)
+# Convert enrichment results to data frames
+df1 <- as.data.frame(treatment.response.nonDA.Sample1vs3.up.filt.cc.ego)
+df2 <- as.data.frame(treatment.response.nonDA.Sample2vs3.up.filt.cc.ego)
+df3 <- as.data.frame(treatment.response.nonDA.Sample2vs3.up.filt.cc.ego)
+
+# Find common GO Descriptions
+common_go_desc <- intersect(df1$Description, df2$Description)
+
+# Initialize result data frame
+result <- data.frame(
+  Description = character(),
+  GeneIDs_Sample1 = character(),
+  GeneIDs_Sample2 = character(),
+  Shared_Genes = character(),
+  Num_Shared_Genes = numeric(),
+  GeneRatio_Sample1 = character(),
+  BgRatio_Sample1 = character(),
+  p.adjust_Sample1 = numeric(),
+  qvalue_Sample1 = numeric(),
+  Count_Sample1 = numeric(),
+  GeneRatio_Sample2 = character(),
+  BgRatio_Sample2 = character(),
+  p.adjust_Sample2 = numeric(),
+  qvalue_Sample2 = numeric(),
+  Count_Sample2 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop over common GO Descriptions
+for (desc in common_go_desc) {
+  row1 <- df1[df1$Description == desc, ][1, ]
+  row2 <- df2[df2$Description == desc, ][1, ]
+  
+  genes1 <- unlist(strsplit(row1$geneID, "/"))
+  genes2 <- unlist(strsplit(row2$geneID, "/"))
+  shared_genes <- intersect(genes1, genes2)
+  
+  result <- rbind(result, data.frame(
+    Description = desc,
+    GeneIDs_Sample1 = paste(genes1, collapse = ", "),
+    GeneIDs_Sample2 = paste(genes2, collapse = ", "),
+    Shared_Genes = paste(shared_genes, collapse = ", "),
+    Num_Shared_Genes = length(shared_genes),
+    GeneRatio_Sample1 = row1$GeneRatio,
+    BgRatio_Sample1 = row1$BgRatio,
+    p.adjust_Sample1 = row1$p.adjust,
+    qvalue_Sample1 = row1$qvalue,
+    Count_Sample1 = row1$Count,
+    GeneRatio_Sample2 = row2$GeneRatio,
+    BgRatio_Sample2 = row2$BgRatio,
+    p.adjust_Sample2 = row2$p.adjust,
+    qvalue_Sample2 = row2$qvalue,
+    Count_Sample2 = row2$Count
+  ))
+}
+
+# Save
+write.csv(result, file = "commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.cc.ego.csv")
+commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.cc.ego <- result
+
+# Selected GO terms
+selected_terms <- c( "distal axon", "neuron to neuron synapse", "growth cone", "dendritic spine", "GABA-ergic synape", "presynaptic active zone", "terminal bouton", "excitatory synapse", "main axon", "microtubule", "neurofilament")
+
+# Filter for selected terms
+plot_df <- result[result$Description %in% selected_terms, ]
+plot_df3 <- df3[df3$Description %in% selected_terms, ]
+
+# Reshape into long format and relabel samples as NTN1 and GDNF
+long_plot_df <- plot_df %>%
+  dplyr::select(Description,
+                Count_Sample1, Count_Sample2,
+                p.adjust_Sample1, p.adjust_Sample2) %>%
+  pivot_longer(cols = starts_with("Count_"),
+               names_to = "Sample_Count",
+               values_to = "Count") %>%
+  mutate(Sample = ifelse(grepl("Sample1", Sample_Count), "NTN1", "GDNF")) %>%
+  left_join(
+    plot_df %>%
+      dplyr::select(Description, p.adjust_Sample1, p.adjust_Sample2) %>%
+      pivot_longer(cols = starts_with("p.adjust_"),
+                   names_to = "Sample_padj",
+                   values_to = "p.adjust") %>%
+      mutate(Sample = ifelse(grepl("Sample1", Sample_padj), "NTN1", "GDNF")),
+    by = c("Description", "Sample")
+  )
+
+# Calculate -log10(p.adjust) and reorder terms
+long_plot_df_cc <- long_plot_df %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+long_plot_df3_cc <- plot_df3 %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+#Perform and save GO enrichment analyses (BP) for NTN vs CTRL
+treatment.response.nonDA.Sample1vs3.up.filt.bp.ego <- enrichGO(gene = treatment.response.nonDA.Sample1vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample1vs3.up.filt.bp.ego, file = "treatment.response.nonDA.Sample1vs3.up.filt.bp.ego.csv")
+
+#Perform and save GO enrichment analyses (BP) for GDNF vs CTRL
+treatment.response.nonDA.Sample2vs3.up.filt.bp.ego <- enrichGO(gene = treatment.response.nonDA.Sample2vs3.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample2vs3.up.filt.bp.ego, file = "treatment.response.nonDA.Sample2vs3.up.filt.bp.ego.csv")
+
+#Perform and save GO enrichment analyses (BP) for GDNF vs NTN1
+treatment.response.nonDA.Sample2vs1.up.filt.bp.ego <- enrichGO(gene = treatment.response.nonDA.Sample2vs1.up.filt_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+write.csv(treatment.response.nonDA.Sample2vs1.up.filt.bp.ego, file = "treatment.response.nonDA.Sample2vs1.up.filt.bp.ego.csv")
+
+#Compare GOs Results BP
+# Convert enrichment results to data frames
+df1 <- as.data.frame(treatment.response.nonDA.Sample1vs3.up.filt.bp.ego)
+df2 <- as.data.frame(treatment.response.nonDA.Sample2vs3.up.filt.bp.ego)
+df3 <- as.data.frame(treatment.response.nonDA.Sample2vs1.up.filt.bp.ego)
+
+# Find common GO Descriptions
+common_go_desc <- intersect(df1$Description, df2$Description)
+
+# Initialize result data frame
+result <- data.frame(
+  Description = character(),
+  GeneIDs_Sample1 = character(),
+  GeneIDs_Sample2 = character(),
+  Shared_Genes = character(),
+  Num_Shared_Genes = numeric(),
+  GeneRatio_Sample1 = character(),
+  BgRatio_Sample1 = character(),
+  p.adjust_Sample1 = numeric(),
+  qvalue_Sample1 = numeric(),
+  Count_Sample1 = numeric(),
+  GeneRatio_Sample2 = character(),
+  BgRatio_Sample2 = character(),
+  p.adjust_Sample2 = numeric(),
+  qvalue_Sample2 = numeric(),
+  Count_Sample2 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop over common GO Descriptions
+for (desc in common_go_desc) {
+  row1 <- df1[df1$Description == desc, ][1, ]
+  row2 <- df2[df2$Description == desc, ][1, ]
+  
+  genes1 <- unlist(strsplit(row1$geneID, "/"))
+  genes2 <- unlist(strsplit(row2$geneID, "/"))
+  shared_genes <- intersect(genes1, genes2)
+  
+  result <- rbind(result, data.frame(
+    Description = desc,
+    GeneIDs_Sample1 = paste(genes1, collapse = ", "),
+    GeneIDs_Sample2 = paste(genes2, collapse = ", "),
+    Shared_Genes = paste(shared_genes, collapse = ", "),
+    Num_Shared_Genes = length(shared_genes),
+    GeneRatio_Sample1 = row1$GeneRatio,
+    BgRatio_Sample1 = row1$BgRatio,
+    p.adjust_Sample1 = row1$p.adjust,
+    qvalue_Sample1 = row1$qvalue,
+    Count_Sample1 = row1$Count,
+    GeneRatio_Sample2 = row2$GeneRatio,
+    BgRatio_Sample2 = row2$BgRatio,
+    p.adjust_Sample2 = row2$p.adjust,
+    qvalue_Sample2 = row2$qvalue,
+    Count_Sample2 = row2$Count
+  ))
+}
+
+# Save
+write.csv(result, file = "commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.bp.ego.csv")
+commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.bp.ego <- result
+
+# Selected GO terms
+selected_terms <- c(
+  "axonogenesis", "synapse assembly", "neurotransmitter secretion", "regulation of synaptic plasticity", "synaptic transmission, GABAergic", "presynapse assembly", "presynapse organization", "axo-dendritic transport", "synaptic transmission, glutamatergic", "synaptic transmission, glutamatergic", "gamma-aminobutyric acid signaling pathway", "glutamate receptor signaling pathway", "regulation of axon extension", "axonal transport", "synapse maturation", "axonal fasciculation",
+  "axon guidance", "neuron projection guidance")
+
+# Filter for selected terms
+plot_df <- result[result$Description %in% selected_terms, ]
+plot_df3 <- df3[df3$Description %in% selected_terms, ]
+
+# Reshape into long format and relabel samples as NTN1 and GDNF
+long_plot_df<- plot_df %>%
+  dplyr::select(Description,
+                Count_Sample1, Count_Sample2,
+                p.adjust_Sample1, p.adjust_Sample2) %>%
+  pivot_longer(cols = starts_with("Count_"),
+               names_to = "Sample_Count",
+               values_to = "Count") %>%
+  mutate(Sample = ifelse(grepl("Sample1", Sample_Count), "NTN1", "GDNF")) %>%
+  left_join(
+    plot_df %>%
+      dplyr::select(Description, p.adjust_Sample1, p.adjust_Sample2) %>%
+      pivot_longer(cols = starts_with("p.adjust_"),
+                   names_to = "Sample_padj",
+                   values_to = "p.adjust") %>%
+      mutate(Sample = ifelse(grepl("Sample1", Sample_padj), "NTN1", "GDNF")),
+    by = c("Description", "Sample")
+  )
+
+# Calculate -log10(p.adjust) and reorder terms
+long_plot_df_bp <- long_plot_df %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+long_plot_df3_bp <- plot_df3 %>%
+  mutate(log10_padj = -log10(p.adjust)) %>%
+  group_by(Description) %>%
+  mutate(ordering_value = max(log10_padj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(Description = reorder(Description, ordering_value))
+
+# Plot
+combined_long_plot_df <- bind_rows(long_plot_df_bp, long_plot_df_cc)
+ggplot(combined_long_plot_df, aes(x = Sample, y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradient(low = "pink", high = "darkred", name = "-log10(p.adjust)") +
+  scale_size(range = c(3, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment nonDA",
+    x = NULL,
+    y = NULL,
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+combined_long_plot_df3 <- bind_rows(long_plot_df3_bp, long_plot_df3_cc)
+ggplot(combined_long_plot_df3, aes(x = "GDNF", y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradient(low = "pink", high = "darkred", name = "-log10(p.adjust)") +
+  scale_size(range = c(3, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment nonDA GDNF",
+    x = NULL,
+    y = NULL,
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+ggplot(combined_long_plot_df3, aes(x = "GDNF", y = Description)) +
+  geom_point(aes(size = Count, color = -log10(p.adjust))) +
+  scale_color_gradientn(
+    colors = c("#F08080", "#FF6347", "red", "darkred"),
+    limits = c(0, 40),
+    name = "-log10(p.adjust)") +
+  scale_size(range = c(5, 10), name = "Gene Count") +
+  labs(
+    title = "Selected GO Pathways Enrichment nonDA",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+ggsave(filename = file.path(output_folder, "combined_GO_plot_nonDA_GDNFvsNTN.png"), width = 8, height = 10, dpi = 300)
+
+#Visualize the results of GO
+p1<-barplot(treatment.response.nonDA.Sample1vs3.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample1vs3.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.nonDA.Sample2vs3.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample2vs3.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+p1<-barplot(treatment.response.nonDA.Sample2vs1.up.filt.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for nonDA.Sample2vs1.bp")
+p1 + theme(axis.text.y = element_text(size = 7))
+
+# Create a ggplot with custom coloring
+
+ggplot(combined_long_plot_df3[1:10, ], aes(x = reorder(Description,-p.adjust), 
+                             y = Count, 
+                             fill = -log10(p.adjust))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_gradientn(colors = c("#F08080", "#FF6347", "red", "darkred")) +
+  labs(title = "GO Enrichment Analysis for nonDA Sample 2vs1 bp", x = "", y = "GeneCounts") +
+  theme_minimal()+
+  guides(fill = guide_colorbar(title = "-log10(p.adjust)"))
+
+ggplot(combined_long_plot_df3[1:10, ], aes(x = reorder(Description, -p.adjust), 
+                                           y = -log10(p.adjust), 
+                                           fill = -log10(p.adjust))) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_gradientn(colors = c("#F08080", "#FF6347", "red", "darkred")) +
+  labs(title = "GO Enrichment Analysis for nonDA Sample 2vs1 bp",
+       x = "", y = "-log10(p.adjust)") +
+  theme_minimal() +
+  guides(fill = guide_colorbar(title = "-log10(p.adjust)"))
+
+ggplot(combined_long_plot_df3[1:10, ], aes(x = reorder(Description,-p.adjust), 
+                             y = Count, 
+                             fill = -log10(p.adjust))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_gradient(low = "pink", high = "darkred")  +
+  labs(title = "GO Enrichment Analysis for nonDA Sample 2vs1 bp", x = "", y = "GeneCounts") +
+  theme_minimal()+
+  guides(fill = guide_colorbar(title = "-log10(p.adjust)"))
+
+ggplot(combined_long_plot_df3[1:10, ], aes(x = reorder(Description, -p.adjust), 
+                                           y = -log10(p.adjust), 
+                                           fill = -log10(p.adjust))) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+    scale_fill_gradient(low = "pink", high = "darkred")  +
+  labs(title = "GO Enrichment Analysis for nonDA Sample 2vs1 bp",
+       x = "", y = "-log10(p.adjust)") +
+  theme_minimal() +
+  guides(fill = guide_colorbar(title = "-log10(p.adjust)"))
+
+p1 <- dotplot(treatment.response.nonDA.Sample2vs1.up.filt.bp.ego, showCategory=10, 
+        title="GO Enrichment Analysis for nonDA.Sample2vs1")
+p1
+
+ggplot(combined_long_plot_df3, 
+       aes(x = GeneRatio, 
+           y = reorder(Description, Count), 
+           size = Count, 
+           color = p.adjust)) +
+  geom_point() +
+  scale_color_gradient(low = "red", high = "pink") +  
+  scale_size_continuous(range = c(5, 12)) +
+  labs(title = "GO Enrichment Analysis for nonDA.Sample2vs1",
+       x = "GeneRatio", 
+       y = "GO Pathway",
+       size = "Gene Count",
+       color = "Adjusted p-value") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_text(size = 8)) 
+
+ggplot(combined_long_plot_df3, 
+       aes(x = GeneRatio, 
+           y = reorder(Description, Count), 
+           size = Count, 
+           color = -log10(p.adjust))) +  # Transform p.adjust to -log10(p.adjust)
+  geom_point() +
+  scale_color_gradient(low = "pink", high = "red") +  
+  scale_size_continuous(range = c(5, 11)) +
+  labs(title = "GO Enrichment Analysis for nonDA.Sample2vs1",
+       x = "GeneRatio", 
+       y = "GO Pathway",
+       size = "Gene Count",
+       color = "-log10(Adjusted p-value)") +  # Update legend label
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_text(size = 8))  # Keep y-axis text as is
+
+ggplot(combined_long_plot_df3, 
+       aes(x = GeneRatio, 
+           y = reorder(Description, Count), 
+           size = Count, 
+           color = -log10(p.adjust))) +  # Transform p.adjust to -log10(p.adjust)
+  geom_point() +
+  scale_color_gradientn(colors = c("#F08080", "#FF6347", "red", "darkred")) +  # Custom color range
+  scale_size_continuous(range = c(5, 11)) +
+  labs(title = "GO Enrichment Analysis for nonDA.Sample2vs1",
+       x = "GeneRatio", 
+       y = "GO Pathway",
+       size = "Gene Count",
+       color = "-log10(Adjusted p-value)") +  # Update legend label
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  # Remove x-axis text
+        axis.text.y = element_text(size = 8))  # Keep y-axis text as is
+
+
+```
+
+```{r}
+# Heatmap of specific genes with info from DEG
+# Initialize an empty list to store results for each GO term
+shared_gene_info_list <- list()
+view(selected_terms)
+# Loop over each selected term 
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.bp.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.nonDA.Sample1vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+view(commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.bp.ego)
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample1vs3 <- shared_gene_info_df
+view(selectedGO_genes_info_Sample1vs3)
+# Loop over each selected term for Sample2vs3
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.bp.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.nonDA.Sample2vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample2vs3 <- shared_gene_info_df
+
+```
+
+```{r}
+# Heatmap of specific genes with info from seurat object for bp
+# Your gene list
+
+# Plot gene_list by pathway
+gene_list_by_pathway <- split(selectedGO_genes_info_Sample2vs3$gene, 
+                              selectedGO_genes_info_Sample2vs3$Description)
+
+# Reorder and rename samples
+desired_order <- c("Sample3", "Sample2", "Sample1")
+custom_labels <- c("CTRL", "GDNF", "NTN1")
+# Loop through each pathway and generate a heatmap
+heatmap_list <- NULL
+for (pathway in names(gene_list_by_pathway)) {
+  
+  genes <- gene_list_by_pathway[[pathway]]
+  
+  # Average expression matrix
+  avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+  
+  # Scale per gene
+  scaled_expr <- t(scale(t(avg_expr)))  # row-wise scaling
+  
+  # Transpose and reorder rows (samples)
+  scaled_expr_flipped <- t(scaled_expr)[desired_order, ]
+  rownames(scaled_expr_flipped) <- custom_labels
+  
+  # Plot the heatmap
+  ht <- Heatmap(
+    scaled_expr_flipped,
+    name = paste("Scaled Expression -", pathway),  # unique heatmap name
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 1), c("blue", "pink", "red")),
+    row_names_gp = gpar(fontsize = 2),
+    column_names_gp = gpar(fontsize = 2),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = FALSE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 2),
+    height = unit(1.5, "cm") 
+  )
+  
+  # Combine heatmaps
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list + ht
+  }
+}
+
+# Draw combined heatmap
+draw(heatmap_list, gap = unit(1, "mm")) 
+#Save
+png("combined_heatmap_nonDA.png", width = 2400, height = 3000, res = 600)
+draw(heatmap_list, gap = unit(1, "mm")) 
+dev.off()
+
+# Save as PDF
+pdf("combined_heatmap_nonDA.pdf", width = 8, height = 10)
+draw(heatmap_list)
+dev.off()
+
+# Save as PNG
+png("combined_heatmap_nonDA.png", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+# Save as TIFF
+tiff("combined_heatmap_nonDA.tiff", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+ggsave(filename = file.path(output_folder, "combined_heatmap_nonDA.png"), width =20, height = 4, dpi = 300)
+```
+
+
+
+```{r}
+# Heatmap of specific genes with info from DEG
+# Selected GO terms
+selected_terms <- c( "distal axon", "neuron to neuron synapse", "growth cone", "dendritic spine", "GABA-ergic synape", "presynaptic active zone", "terminal bouton", "excitatory synapse", "main axon", "microtubule", "neurofilament")
+# Initialize an empty list to store results for each GO term
+shared_gene_info_list <- list()
+
+# Loop over each selected term 
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.cc.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.nonDA.Sample1vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample1vs3 <- shared_gene_info_df
+
+# Loop over each selected term for Sample2vs3
+for (term in selected_terms) {
+  # Extract shared genes for the term
+  shared_genes <- commonGO.treatment.response.nonDA.Sample1vs3_Sample2vs3.up.filt.cc.ego %>%
+    filter(Description == term) %>%
+    pull(Shared_Genes) %>%
+    strsplit(", ") %>%
+    unlist()
+  
+  # If there are shared genes, filter and store
+  if (length(shared_genes) > 0) {
+    gene_info <- treatment.response.nonDA.Sample2vs3.up.filt %>%
+      filter(gene %in% shared_genes) %>%
+      dplyr::select(gene, p_val, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+      mutate(Description = term)
+    
+    shared_gene_info_list[[term]] <- gene_info
+  }
+}
+
+# Combine all into a single dataframe
+shared_gene_info_df <- bind_rows(shared_gene_info_list)
+# Create a unique gene name vector for rownames
+unique_gene_names <- make.unique(as.character(shared_gene_info_df$gene))
+# Set as rownames
+rownames(shared_gene_info_df) <- unique_gene_names
+# Save it in a new data frame
+selectedGO_genes_info_Sample2vs3 <- shared_gene_info_df
+
+```
+
+```{r}
+# Heatmap of specific genes with info from seurat object for cc
+# Plot gene_list by pathway
+gene_list_by_pathway <- split(selectedGO_genes_info_Sample2vs3$gene, 
+                              selectedGO_genes_info_Sample2vs3$Description)
+# Reorder and rename samples
+desired_order <- c("Sample3", "Sample2", "Sample1")
+custom_labels <- c("CTRL", "GDNF", "NTN1")
+# Loop through each pathway and generate a heatmap
+heatmap_list <- NULL
+for (pathway in names(gene_list_by_pathway)) {
+  
+  genes <- gene_list_by_pathway[[pathway]]
+  
+  # Average expression matrix
+  avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+  
+  # Scale per gene
+  scaled_expr <- t(scale(t(avg_expr)))  # row-wise scaling
+  
+  # Transpose and reorder rows (samples)
+  scaled_expr_flipped <- t(scaled_expr)[desired_order, ]
+  rownames(scaled_expr_flipped) <- custom_labels
+  
+  # Plot the heatmap
+  ht <- Heatmap(
+    scaled_expr_flipped,
+    name = paste("Scaled Expression -", pathway),  # unique heatmap name
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 1), c("blue", "pink", "red")),
+    row_names_gp = gpar(fontsize = 4),
+    column_names_gp = gpar(fontsize = 4),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = FALSE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 4),
+    height = unit(1.5, "cm") 
+  )
+  
+  # Combine heatmaps
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list + ht
+  }
+}
+
+# Draw combined heatmap
+draw(heatmap_list, gap = unit(1, "mm")) 
+#Save
+png("combined_heatmap_cc_nonDA.png", width = 2400, height = 3000, res = 600)
+draw(heatmap_list, gap = unit(1, "mm")) 
+dev.off()
+
+# Save as PDF
+pdf("combined_heatmap_cc_nonDA.pdf", width = 8, height = 10)
+draw(heatmap_list)
+dev.off()
+
+# Save as PNG
+png("combined_heatmap_cc_nonDA.png", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+
+# Save as TIFF
+tiff("combined_heatmap_cc_nonDA.tiff", width = 2400, height = 3000, res = 300)
+draw(heatmap_list)
+dev.off()
+```
+```{r}
+custom_gene_list_by_pathway <- list(
+  "axon guidance" = c("DPYSL5", "BMPR2", "GAP43", "B4GAT1", "NCAM1", "NECTIN1", "CNTN1", "EPHA5", "ARHGAP35"),
+  "axonogenesis" = c("RTN4", "ACTB", "OLFM1", "APLP2", "CNTN1", "SLITRK5", "B4GALT5", "SLC9A6", "ADCY1"),
+  "neuron to neuron synapse" = c ("NEGR1", "PLPPR4", "SYT11", "NSG2", "RTN3", "SYT1", "RTN1", "NSF", "ATP1A3"),
+  "distal axon" = c("STMN2", "OLFM1", "THY1", "STMN3", "SYP", "SLC8A1", "APP", "SLC2A13", "DPYSL3")
+)
+# Create heatmap list
+heatmap_list <- NULL
+for (pathway in names(custom_gene_list_by_pathway)) {
+  
+  genes <- custom_gene_list_by_pathway[[pathway]]
+  
+  # Proceed as before:
+  avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+  scaled_expr <- t(scale(t(avg_expr)))
+  scaled_expr_flipped <- t(scaled_expr)[desired_order, ]
+  rownames(scaled_expr_flipped) <- custom_labels
+
+  ht <- Heatmap(
+    scaled_expr_flipped,
+    name = pathway,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "left",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 0.2, 1), c("blue", "white", "pink", "red")),
+    row_names_gp = gpar(fontsize = 4),
+    column_names_gp = gpar(fontsize = 4),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = TRUE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 6),
+    height = unit(1, "cm"),
+    rect_gp = gpar(col = "lightgray", lwd = 0.5)
+  )
+
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list + ht
+  }
+}
+
+# Create and save the combined heatmap with the black border
+
+# Save the PNG image
+png("heatmaplegend.png", width = 2400, height = 3000, res = 600)
+
+# Draw the heatmap first to create the layout
+draw(heatmap_list, gap = unit(1, "mm"))
+
+# Apply the black borders outside each heatmap
+for (ht_name in names(custom_gene_list_by_pathway)) {
+  decorate_heatmap_body(ht_name, {
+    grid.rect(gp = gpar(col = "black", lwd = 0.5, fill = NA))  # Apply black border with line width 2
+  })
+}
+dev.off()
+
+
+#vertical
+heatmap_list <- NULL
+for (pathway in names(custom_gene_list_by_pathway)) {
+  
+  genes <- custom_gene_list_by_pathway[[pathway]]
+  
+  # Proceed as before:
+avg_expr <- AverageExpression(NeuronsOnly, features = genes, group.by = "SampleID", slot = "data")$RNA
+scaled_expr <- t(scale(t(avg_expr)))
+scaled_expr <- scaled_expr[, desired_order]
+colnames(scaled_expr) <- custom_labels
+
+  ht <- Heatmap(
+    scaled_expr,
+    name = pathway,
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+    row_names_side = "right",
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    col = colorRamp2(c(-1, 0, 0.2, 1), c("blue", "white", "pink", "red")),
+    row_names_gp = gpar(fontsize = 4),
+    column_names_gp = gpar(fontsize = 4),
+    heatmap_legend_param = list(title = "Expression"),
+    show_heatmap_legend = FALSE,
+    column_title = pathway,
+    column_title_gp = gpar(fontsize = 6),
+    height = unit(3, "cm"),
+    rect_gp = gpar(col = "lightgray", lwd = 0.5)
+  )
+
+  if (is.null(heatmap_list)) {
+    heatmap_list <- ht
+  } else {
+    heatmap_list <- heatmap_list %v% ht
+  }
+}
+# Create and save the combined heatmap with the black border
+
+# Save the PNG image
+png("combined_heatmap_nonDA_selectedgenes_vertical.png", width = 500, height = 3000, res = 550)
+
+# Draw the heatmap first to create the layout
+draw(heatmap_list, gap = unit(1, "mm"))
+
+# Apply the black borders outside each heatmap
+for (ht_name in names(custom_gene_list_by_pathway)) {
+  decorate_heatmap_body(ht_name, {
+    grid.rect(gp = gpar(col = "black", lwd = 0.5, fill = NA))  # Apply black border with line width 2
+  })
+}
+dev.off()
+
+```
+
+```{r}
+nonDAonly<-subset(NeuronsOnly, subset = cell_type == "Other Neurons" )
+DotPlot(nonDAonly, features = c ("GAP43", "SYT1", "GABRB3", "RTN4", "BMPR2", "ACTB", "OLFM1", "B4GAT1", "NCAM1", "THY1"))
+DotPlot(nonDAonly, features = c("GAP43", "SYT1", "GABRB3", "RTN4", "BMPR2", "ACTB", "OLFM1", "B4GAT1", "NCAM1", "THY1")) + 
+  theme(axis.text.x = element_text(angle = 45)) +  # Rotate gene names to be diagonal
+  scale_color_gradient(low = "grey", high = "red") +  # Use a red color scale
+  labs(y = NULL, x = NULL) + 
+  scale_y_discrete(labels = c("Other Neurons_Sample1" = "NTN", "Other Neurons_Sample2" = "GDNF", "Other Neurons_Sample3" = "CTRL")) +  # Rename samples
+  theme_minimal()
+
+VlnPlot(nonDAonly, features = "GAP43")
+library(forcats)  # for fct_recode function
+
+VlnPlot(nonDAonly, features = "GAP43") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "SYT1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "GABRB3") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "RTN4") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "BMPR2") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "ACTB") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "OLFM1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "B4GAT1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "NCAM1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+VlnPlot(nonDAonly, features = "THY1") + 
+  scale_x_discrete(labels = c("DA Neurons_Sample1" = "NTN", 
+                              "DA Neurons_Sample2" = "GDNF", 
+                              "DA Neurons_Sample3" = "CTRL"))+  # Use a red color scale
+  labs(x = NULL)
+```
+
+```{r}
+#Goseq
+# Create a vector to indicate which genes are DE (1 for DE, 0 for non-DE)
+gene.vector <- as.integer(rownames(treatment.response.DA.Sample1vs3) %in% rownames(treatment.response.DA.Sample1vs3.up.filt))
+names(gene.vector) <- rownames(treatment.response.DA.Sample1vs3)
+# Set up the Ensembl mart for human
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+# Get gene symbol to Ensembl ID mapping
+mapping <- getBM(
+  attributes = c("hgnc_symbol", "ensembl_gene_id"),
+  filters = "hgnc_symbol",
+  values = names(gene.vector),
+  mart = mart
+)
+
+# Keep unique mappings and remove duplicates
+mapping <- mapping[!duplicated(mapping$hgnc_symbol), ]
+
+# Map gene.vector to Ensembl IDs
+gene.vector.ens <- gene.vector[mapping$hgnc_symbol]
+names(gene.vector.ens) <- mapping$ensembl_gene_id
+
+# Clean NA values
+gene.vector.ens <- gene.vector.ens[!is.na(names(gene.vector.ens))]
+# Set up the Ensembl mart for human
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+# Get gene symbol to Ensembl ID mapping
+mapping <- getBM(
+  attributes = c("hgnc_symbol", "ensembl_gene_id"),
+  filters = "hgnc_symbol",
+  values = names(gene.vector),
+  mart = mart
+)
+
+# Keep unique mappings and remove duplicates
+mapping <- mapping[!duplicated(mapping$hgnc_symbol), ]
+
+# Map gene.vector to Ensembl IDs
+gene.vector.ens <- gene.vector[mapping$hgnc_symbol]
+names(gene.vector.ens) <- mapping$ensembl_gene_id
+
+# Clean NA values
+gene.vector.ens <- gene.vector.ens[!is.na(names(gene.vector.ens))]
+
+# Ensure gene.vector.ens and gene.lengths have the same genes
+common_genes <- intersect(names(gene.vector.ens), names(gene.lengths))
+gene.vector.ens <- gene.vector.ens[common_genes]
+gene.lengths <- gene.lengths[common_genes]
+
+# Run GOseq analysis
+pwf <- nullp(
+  gene.vector.ens, 
+  genome = "hg38", 
+  id = "ensGene",
+  bias.data = gene.lengths
+)
+
+# Perform the actual pathway enrichment analysis (GOseq)
+go_results <- goseq(
+  pwf, 
+  genome = "hg38", 
+  id = "ensGene"
+)
+
+# View the GO results
+head(go_results)
+
+```
+
+# Pseudobulk
+
+```{r}
+
+NeuronsOnly.pseudobulk <- AggregateExpression(NeuronsOnly, assays = "RNA", return.seurat = T,
+group.by = c("SampleID",  "seurat_clusters", "cell_type"))
+# If you want the pseudobulk matrix as a dataframe you can do this:
+NeuronsOnly.pseudobulk.df <- AggregateExpression(NeuronsOnly, assays = "RNA",
+                                          group.by = c("SampleID",  "seurat_clusters", "cell_type")) %>% as.data.frame()
+
+head(NeuronsOnly.pseudobulk.df)
+NeuronsOnly.pseudobulk$celltype.and.sampleID <- paste( NeuronsOnly.pseudobulk$cell_type,NeuronsOnly.pseudobulk$SampleID, sep = "_")
+Idents(NeuronsOnly.pseudobulk) <- "celltype.and.sampleID"
+# Run a DEG test between Sample 1 DA and Sample 1 Other Neurons using the same FindMarkers function but with DESeq2
+treatment.response.NeuronsOnly.pseudo <- FindMarkers(object = NeuronsOnly.pseudobulk,
+ident.1 = 'DA Neurons_Sample1',
+ident.2 = 'Other Neurons_Sample1',
+test.use = "DESeq2")
+write.csv(treatment.response.NeuronsOnly.pseudo, file="treatment.response.NeuronsOnly.pseudo.csv")
+# Visualization
+Sample1DA.sig.markers <- treatment.response.NeuronsOnly.pseudo %>% 
+  dplyr::filter(p_val_adj < 0.05) %>%
+  dplyr::mutate(gene = rownames(.))
+Sample1DA.sig.markers
+# Pull average (scaled) pseudobulk expression values from seurat object
+NeuronsOnly$celltype.SampleID.seurat_clusters<- paste0( NeuronsOnly$cell_type, "-", NeuronsOnly$SampleID, "-",
+                                              NeuronsOnly$seurat_clusters)
+Idents(NeuronsOnly)<-"celltype.SampleID.seurat_clusters"
+all.sig.avg.Expression.mat <- AverageExpression(NeuronsOnly, 
+                         features = Sample1DA.sig.markers$gene, 
+                         layer = 'scale.data')
+view(treatment.response.NeuronsOnly.pseudo)
+# Select only data from Sample1
+DA.sig.avg.Expression.mat <- all.sig.avg.Expression.mat$RNA %>%
+  as.data.frame() %>%
+  dplyr::select(contains("Sample1"))
+# Heatmap
+pheatmap::pheatmap(DA.sig.avg.Expression.mat,
+         cluster_rows = TRUE,
+         show_rownames = FALSE, 
+         border_color = NA, 
+         fontsize = 10, 
+         scale = "row", 
+         fontsize_row = 10, 
+         height = 20)
+
+# Calculate the average per cell type
+avg_expr <- data.frame(
+  DA_Neurons = rowMeans(DA.sig.avg.Expression.mat %>% dplyr::select(starts_with("DA Neurons")), na.rm = TRUE),
+  Other_Neurons = rowMeans(DA.sig.avg.Expression.mat %>% dplyr::select(starts_with("Other Neurons")), na.rm = TRUE),
+  Not_Neurons = rowMeans(DA.sig.avg.Expression.mat %>% dplyr::select(starts_with("Not Neurons")), na.rm = TRUE)
+)
+rownames(avg_expr) <- rownames(DA.sig.avg.Expression.mat)
+view(avg_expr)
+# order from highest to lowest
+avg_expr <- avg_expr %>%
+  arrange(desc(DA_Neurons))  # Use `desc()` for descending (highest to lowest)
+# select first 15 and last 15 values
+subset_avg_expr <- rbind(
+  avg_expr[1:15, ],
+  avg_expr[(nrow(avg_expr)-14):nrow(avg_expr), ]
+)
+# Heatmap of expression values
+pheatmap::pheatmap(subset_avg_expr,
+         cluster_rows = TRUE,
+         show_rownames = TRUE, 
+         border_color = NA, 
+         fontsize = 4, 
+         scale = "row", 
+         fontsize_row = 4, 
+         height = 20)
+
+                 
+## Volcano plot
+treatment.response.NeuronsOnly.pseudo_thres <- treatment.response.NeuronsOnly.pseudo %>% 
+                  mutate(threshold = p_val_adj < 0.05 & abs(avg_log2FC) >= 0.5)
+ggplot(treatment.response.NeuronsOnly.pseudo_thres) +
+    geom_point(aes(x = avg_log2FC, y = -log10(p_val_adj), colour = threshold)) +
+    ggtitle("Volcano plot of Sample1") +
+    xlab("log2 fold change") + 
+    ylab("-log10 adjusted p-value") +
+    scale_y_continuous(limits = c(0,30)) +
+    theme(legend.position = "none",
+          plot.title = element_text(size = rel(1.5), hjust = 0.5),
+          axis.title = element_text(size = rel(1.25)))
+
+#EnhancedVolcano
+g<-EnhancedVolcano(treatment.response.NeuronsOnly.pseudo_thres, 
+                lab = rownames(treatment.response.NeuronsOnly.pseudo_thres),
+                x = "avg_log2FC",                   # X-axis is log2 fold change
+                y = "p_val_adj",
+                 pointSize = 2,
+                labSize = 2,
+                legendLabSize = 3,
+                legendIconSize = 2,
+                title = "Sample1" ,
+                xlim = c(-5, 7) 
+                )+ 
+  theme(
+    axis.title.x = element_text(size = 4),  # Smaller font size for X-axis title
+    axis.title.y = element_text(size = 4),  # Smaller font size for Y-axis title
+    axis.text.x = element_text(size = 3), # Smaller font size for X-axis numbers
+    axis.text.y = element_text(size = 3), # Smaller font size for Y-axis numbers
+    plot.title = element_text(size=6, face = "bold"),        # Remove the plot title
+    plot.margin = margin(5, 5, 5, 5)  # Optional: Adds more space around the plot
+  )
+g
+
+```
+
+# GO for upregulated genes
+
+```{r}
+# Calculate only positive markers
+treatment.response.NeuronsOnly.pseudo.up <- FindMarkers(object = NeuronsOnly.pseudobulk,
+ident.1 = 'DA Neurons_Sample1',
+ident.2 = 'Other Neurons_Sample1',
+test.use = "DESeq2",
+only.pos=TRUE)
+
+#Convert gene symbols to Entrez IDs
+treatment.response.NeuronsOnly.pseudo.up$gene <- rownames(treatment.response.NeuronsOnly.pseudo.up)
+treatment.response.NeuronsOnly.pseudo.up_ids <- bitr(treatment.response.NeuronsOnly.pseudo.up$gene, fromType = "SYMBOL",
+                                   toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+#Perform and save GO enrichment analyses (Cellular Component )
+treatment.response.NeuronsOnly.pseudo.up.cc.ego <- enrichGO(gene = treatment.response.NeuronsOnly.pseudo.up_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "CC", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+view(treatment.response.NeuronsOnly.pseudo.up.bp.ego)
+#barplot
+p1<-barplot(treatment.response.NeuronsOnly.pseudo.up.cc.ego, showCategory=20, 
+        title="GO Enrichment Analysis for Sample1.cc")
+p1
+#Perform and save GO enrichment analyses (Biological Processes)
+treatment.response.NeuronsOnly.pseudo.up.bp.ego <- enrichGO(gene = treatment.response.NeuronsOnly.pseudo.up_ids$ENTREZID, 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.05, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+#barplot
+
+p1<-barplot(treatment.response.NeuronsOnly.pseudo.up.bp.ego, showCategory=20, 
+        title="GO Enrichment Analysis for Sample1.bp")
+p1
+```
+
+#Try another GO analyses
+
+```{r}
+
+# Rank genes by log-fold change (logFC) in decreasing order (input for GSEA)
+view(treatment.response.NeuronsOnly.pseudo)
+treatment.response.NeuronsOnly.pseudo <- treatment.response.NeuronsOnly.pseudo %>%
+  arrange(desc(avg_log2FC))
+#create the vector gene_list
+gene_list <- treatment.response.NeuronsOnly.pseudo$avg_log2FC
+names(gene_list) <- rownames(treatment.response.NeuronsOnly.pseudo)
+# convert to ENTREZ ID
+view (names(gene_list))
+conversion <- bitr(names(gene_list), fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+view(gene_list)
+names(gene_list)<-conversion$ENTREZID
+gene_list <- gene_list[!is.na(names(gene_list))]
+gseGO_Sample1 <- gseGO(geneList     = gene_list,
+              OrgDb        = org.Hs.eg.db,
+              ont          = "CC",
+              minGSSize    = 50,
+              maxGSSize    = 500,
+              nPermSimple = 10000,
+              eps          = 0,
+              verbose      = FALSE)
+view(gseGO_Sample1)
+p1<-barplot(gseGO_Sample1, showCategory=20, 
+        title="GO Enrichment Analysis for Sample1.cc")
+p1
+
+
+ego_data <- as.data.frame(ego3)
+
+color_palette <- sequential_hcl(10, palette = "Reds", rev = TRUE)
+ggplot(ego_data[1:8, ], aes(x = reorder(Description, -pvalue), 
+                             y = -log10(pvalue), 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "Top 8 gseGO for DA", x = "", y = "-log10(pvalue)") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+
+ggplot(ego_data[1:8, ], aes(x = reorder(Description,-pvalue), 
+                             y = setSize, 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "Top 8 gseGO for DA", x = "", y = "GeneCounts") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+
+#KEGG
+
+DA.kegg <- enrichKEGG(gene = treatment.response.NeuronsOnly.pseudo.up_ids$ENTREZID, 
+                      organism = "hsa", # Use "hsa" for Homo sapiens (adjust if needed for other species)
+                      pvalueCutoff = 0.05)
+view(DA.kegg)
+ego_data <- as.data.frame(DA.kegg)
+color_palette <- sequential_hcl(10, palette = "Reds", rev = TRUE)
+ggplot(ego_data[1:10, ], aes(x = reorder(Description, -pvalue), 
+                             y = -log10(pvalue), 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "Top 10 Enriched KEGG Pathways DA ", x = "", y = "-log10(pvalue)") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+
+ggplot(ego_data[1:10, ], aes(x = reorder(Description,-pvalue), 
+                             y = Count, 
+                             fill = factor(-log10(pvalue)))) +  # Use factor for discrete colors
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  scale_fill_manual(values = color_palette) +  # Apply discrete colors
+  labs(title = "Top 10 Enriched KEGG Pathways DA", x = "", y = "GeneCounts") +
+  theme_minimal()+
+  guides(fill = guide_legend(title = "-log10(pvalue)"))
+# Assuming you have run enrichKEGG and have DA.gene_ids$ENTREZID (your gene IDs)
+# and DA.kegg which contains the KEGG pathway enrichment data
+
+# Visualize the specific pathway (hsa04728)
+pathview(
+  gene.data = DA.gene.upreg_ids$ENTREZID,  # Your gene IDs from DA.gene_ids$ENTREZID
+  pathway.id = "hsa04728",           # Pathway to visualize
+  species = "hsa",                   # Homo sapiens (adjust if using another species)
+  out.suffix = "hsa04728"            # Suffix for output files
+)
+pathview(
+  gene.data = geneList,
+  pathway.id = "hsa04728",
+  species = "hsa",
+  out.suffix = "hsa04728_expression",
+  limit      = list(gene=max(abs(geneList)))
+)
+
+browseKEGG(DA.kegg, 'hsa04721')
+browseKEGG(DA.kegg, 'hsa04728')
+
+
+# Rank genes by log-fold change (logFC) in decreasing order
+
+DA.markers.upreg_with_ids <- merge(treatment.response.NeuronsOnly.pseudo.up, treatment.response.NeuronsOnly.pseudo.up_ids, by.x = "gene", by.y = "SYMBOL")
+DA.markers.upreg_with_ids <- DA.markers.upreg_with_ids[!is.na(DA.markers.upreg_with_ids$ENTREZID), ]
+geneList <- DA.markers.upreg_with_ids$avg_log2FC
+names(geneList) <- DA.markers.upreg_with_ids$ENTREZID  # Assign ENTREZ IDs as names
+geneList <- sort(geneList, decreasing = TRUE)
+
+# Run GSEA for KEGG pathways
+gse_result <- gseKEGG(gene = geneList,
+                      minGSSize = 10,    # Minimum gene set size
+                      pvalueCutoff = 0.1,  # Relaxed p-value threshold
+                      organism = "hsa",  # Specify human (hsa) KEGG pathways
+                      verbose = FALSE,
+                      scoreType = "pos")  # Suppress verbose output
+
+# Check the result
+
+dotplot(gse_result, showCategory = 4, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+
+# Try brain specific GO (Brain_GMT)
+DA.markers.upreg_with_ids <- merge(treatment.response.NeuronsOnly.pseudo.up, treatment.response.NeuronsOnly.pseudo.up_ids, by.x = "gene", by.y = "SYMBOL")
+DA.markers.upreg_with_ids <- DA.markers.upreg_with_ids[!is.na(DA.markers.upreg_with_ids$ENTREZID), ]
+geneList <- DA.markers.upreg_with_ids$avg_log2FC
+view(geneList)
+names(geneList) <- DA.markers.upreg_with_ids$gene  # Assign gene IDs as names
+geneList <- sort(geneList, decreasing = FALSE)
+view(geneList)
+BrainGMT<-gmtPathways("/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged/Data Neurons Only/BrainGMTv2_HumanOrthologs.gmt.txt")
+geneList <- geneList[!duplicated(names(geneList))]
+GSEA_Results<-fgsea(BrainGMT, geneList,minSize = 10, maxSize = 1000, scoreType = "pos")
+GSEA_Results$leadingEdge<-vapply(GSEA_Results$leadingEdge, paste, collapse= ",", character(1L))
+#sort by number of genes and NES
+view(GSEA_Results)
+write.csv(GSEA_Results, "GSEA_Results.csv")
+head(GSEA_Results[order(-size, -abs(NES)), ], n=10)
+pathway_name <- "MANNO_MIDBRAIN_NEUROTYPES_HDA1"
+plotEnrichment(BrainGMT[[pathway_name]], geneList) +
+  ggtitle(paste("Enrichment Plot for", pathway_name))
+
+# Create a new column with -log10(p-value)
+GSEA_Results$negLogPval <- -log10(GSEA_Results$pval)
+
+# Select the top pathways (e.g., top 10 pathways)
+top_pathways <- GSEA_Results[order(GSEA_Results$size, decreasing = TRUE), ][1:5, ]
+
+# Create a barplot of the top 10 pathways based on -log10(p-value)
+ggplot(top_pathways, aes(x = reorder(pathway, negLogPval), y = negLogPval, fill = negLogPval)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip the plot for better readability
+  labs(title = "Top 10 Enriched Pathways", x = "Pathway", y = "-log10(p-value)") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8)) + 
+  scale_fill_gradient(low = "lightblue", high = "red")  # Color gradient based on p-value
+
+
+```
+
+
+
