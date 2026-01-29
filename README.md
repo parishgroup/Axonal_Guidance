@@ -4,4 +4,4 @@ This repository contains analysis scripts and data for the paper "NTN1 Selective
 ## Gene list used to discriminate between human and rat
 This file contains the list of genes used to discriminate between human and rat in the figure 6 of the paper
 
-Data/'PDgraft_ku80sorted_unsorted_PrincipleComponents.numbers'
+data/PDgraft_ku80sorted_unsorted_PrincipleComponents.numbers
