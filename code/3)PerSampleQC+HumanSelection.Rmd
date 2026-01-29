@@ -414,32 +414,6 @@ FeatureScatter(Sample1.filt.norm,shuffle=T, feature2=c("Graft1_1"), feature1="Gr
   ylab("Score from PC1: Human signature")
 ```
 
-```{r}
-#Make a list of genes related to the project
-vmDAList<-list(
-"neuronalMarker"=c("NCAM1", "MAP2", "RBFOX3", "SYN1"),
-"vmDANeuron"=c("TH", "EN1", "LMX1A", "FOXA2", "OTX2", "SLC6A3", "SLC18A2", "DRD1", "DRD2", "NR4A2", "DDC", "DLK1", "ALDH1A2", "ADCYAP1", "CORIN", "SHH"),
-"A9vmDA"=c("PITX3", "KCNJ6", "ALDH1A1"),
-"A10vmDA"=c("CALB1"),
-"GDNF pathway"=c("GDNF", "NRTN", "RET", "GFRA1", "GFRA2", "GFRA3", "GFRA4", "FRS2", "SHC1", "MAPK1", "MAPK3", "MAP2K1", "MAP2K2"),
-"Netrin1 pathway"= c("NTN1", "DCC", "UNC5A", "UNC5B", "NEO1", "ROBO1", "DSCAM" ))
-
-
-#FeaturePlot of the Seurat Object for each vmDAList gene 
-plot_list<-list()
-
-for(listName in names(vmDAList)) {
-  unlist(vmDAList[[listName]])->j
-  for(i in j){
-    try(
-plot_list[[i]]<-  FeaturePlot(Sample1.filt.norm, features = i)+ggtitle(paste0(listName,": " ,i))
-    )
- }
-}
-
-plot_list
-```
-
 ***
 
 # HumanOnly Sample
@@ -448,23 +422,12 @@ plot_list
 
 ```{r}
 
-###########3 set threshold: #####################
-
 #Crate a new Seurat Object called Sample1HumanOnly containing only human cells (based on the set human and rat thresholds)
 Sample1humanOnly<-subset(Sample1.filt.norm, subset= Graft1_2<Sample1_rat_threshold & Graft1_1>Sample1_human_threshold)
 
 #Crate a new Seurat Object called ratOnly containing only rat cells (basd on the seet human and rat thresholds)
 Sample1ratOnly<-subset(Sample1.filt.norm, subset= Graft1_2>=Sample1_rat_threshold & Graft1_1<=Sample1_human_threshold)
-##################################################
 
-
-#table("allCells"=Sample1.filt.norm$sampleName)
-#table("humanCells"=humanOnly$sampleName)
-#table("humanCells"=humanOnly$BatchName)
-#table("humanCells"=humanOnly$ELN_10x)
-
-#table("allCells"=Sample1.filt.norm$SampleDetail, Sample1.filt.norm$PuritySorted)
-#table("humanCells"=humanOnly$SampleDetail, humanOnly$PuritySorted)
 # Create a vector (humanCells) containing the cell identifiers of the human cells in the humanOnly Seurat object.
 Sample1humanCells<-WhichCells(Sample1humanOnly)
 #how many rat cells?
@@ -499,32 +462,6 @@ FeatureScatter(Sample1humanOnly,shuffle=T, feature2=c("Graft1_1"), feature1="Gra
   xlab("Score from negPC1: Rat signature")+geom_density_2d(alpha=0.9)+
   ylab("Score from PC1: Human signature")+ylim(0,NA)+xlim(NA, 1)
 
-```
-
-```{r}
-#Make a list of genes related to the stroke project
-vmDAList<-list(
-"neuronalMarker"=c("NCAM1", "MAP2", "RBFOX3", "SYN1"),
-"vmDANeuron"=c("TH", "EN1", "LMX1A", "FOXA2", "OTX2", "SLC6A3", "SLC18A2", "DRD1", "DRD2", "NR4A2", "DDC", "DLK1", "ALDH1A2", "ADCYAP1", "CORIN", "SHH"),
-"A9vmDA"=c("PITX3", "KCNJ6", "ALDH1A1"),
-"A10vmDA"=c("CALB1"),
-"GDNF pathway"=c("GDNF", "NRTN", "RET", "GFRA1", "GFRA2", "GFRA3", "GFRA4", "FRS2", "SHC1", "MAPK1", "MAPK3", "MAP2K1", "MAP2K2"),
-"Netrin1 pathway"= c("NTN1", "DCC", "UNC5A", "UNC5B", "NEO1", "ROBO1", "DSCAM" )
-)
-
-#FeaturePlot of humanOnly Seurat Object for each gene in the list
-plot_list<-list()
-
-for(listName in names(vmDAList)) {
-  unlist(vmDAList[[listName]])->j
-  for(i in j){
-    try(
-plot_list[[i]]<-  FeaturePlot(Sample1humanOnly, features = i)+ggtitle(paste0(listName,": " ,i))
-    )
- }
-}
-
-plot_list
 ```
 
 
@@ -607,120 +544,7 @@ Sample1humanOnly.norm <- FindClusters(Sample1humanOnly.norm, resolution = 0.2)
 DimPlot(Sample1humanOnly.norm, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
 ```
 
-
-***
-# Cluster Markers
-
-Visualization of expression of markers  of interest.
-```{r clustering plot2}
-DAneurons<-c ( "TH", "PITX3")
-Astrocytes<-c("GFAP","SOX9", "SLC1A3", "AQP4", "S100B")
-DAprogenitors<- c( "OTX2", "FOXA2", "CORIN", "SHH", "ALDH1A1", "LMX1A")
-all_features <- c(DAneurons, Astrocytes, DAprogenitors)
-VlnPlot(Sample1humanOnly.norm, features = DAneurons)
-VlnPlot(Sample1humanOnly.norm, features = Astrocytes)
-VlnPlot(Sample1humanOnly.norm, features = DAprogenitors)
-```
-
-```{r clustering feature plot2}
-FeaturePlot(Sample1humanOnly.norm, features = DAneurons)
-FeaturePlot(Sample1humanOnly.norm, features = Astrocytes)
-FeaturePlot(Sample1humanOnly.norm, features = DAprogenitors)
-```
-
-```{r clustering dotplot2}
-DotPlot(Sample1humanOnly.norm, features = DAneurons)
-DotPlot(Sample1humanOnly.norm, features = Astrocytes)
-DotPlot(Sample1humanOnly.norm, features = DAprogenitors)
-DotPlot(Sample1humanOnly.norm, features = all_features) + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
-```
-```{r, message=FALSE}
-#FeaturePlot of the Seurat Object for each vmDAList gene 
-plot_list<-list()
-
-for(listName in names(vmDAList)) {
-  unlist(vmDAList[[listName]])->j
-  for(i in j){
-    try(
-plot_list[[i]]<-  VlnPlot(Sample1humanOnly.norm, features = i)+ggtitle(paste0(listName,": " ,i))
-    )
- }
-}
-
-plot_list
-
-# Initialize an empty list to store the plots
-plot_list <- list()
-
-# Loop through each list in vmDAList
-for (listName in names(vmDAList)) {
-  
-  # Unlist the markers in the current list
-  unlist(vmDAList[[listName]]) -> j
-  
-  # Loop through each marker in the current list
-  for (i in j) {
-    
-    try({
-      # Create the Violin Plot for the current marker
-      p <- VlnPlot(Sample1humanOnly.norm, features = i) + 
-        ggtitle(paste0(listName, ": ", i)) +  # Set the plot title to the list name and marker
-        xlab("Gene") +                      # Set the x-axis label to "Gene"
-        ylab("Cluster") +                   # Set the y-axis label to "Cluster"
-        theme(
-          plot.title = element_text(hjust = 0.5),  # Center the plot title
-          axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels
-        )
-      
-      # Store the plot in the plot_list
-      plot_list[[paste0(listName, "_", i)]] <- p
-      
-      # Save the plot to the specified output folder
-      # Create a safe filename by replacing non-alphanumeric characters with "_"
-      safe_name <- str_replace_all(paste0(listName, "_", i), "[^[:alnum:]]", "_")
-      filename <- paste0(output_folder, "/", safe_name, "_Sample1.png")
-      
-      # Save the plot as a .png file
-      ggsave(filename, plot = p, width = 10, height = 8)  # Adjust width and height as needed
-    })
-  }
-}
-
-# Optionally, return the plot_list if needed
-plot_list
-
-```
-
-```{r, message=FALSE}
-# Loop through each group in vmDAList
-# Loop through each group in vmDAList
-for (group_name in names(vmDAList)) {
-  markers <- vmDAList[[group_name]]
-  
-  # Create the DotPlot for the current group of markers
-  p <- DotPlot(Sample1humanOnly.norm, features = markers) + 
-    ggtitle(group_name) +  # Set the plot title to the group name
-    xlab("Gene") +         # Set the x-axis label to "Gene"
-    ylab("Cluster") +      # Set the y-axis label to "Cluster"
-    theme(
-      plot.title = element_text(hjust = 0.5),  # Center the plot title
-      axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels
-    )
-  
-  # Create a safe filename using the group name and "Sample1"
-  safe_group_name <- str_replace_all(group_name, "[^[:alnum:]]", "_")  # Replace non-alphanumeric characters with "_"
-  filename <- paste0(output_folder, "/", safe_group_name, "_Sample1.png")
-  
-  # Save the plot to the specified output folder
-  ggsave(filename, plot = p, width = 5, height = 4)  # Adjust width and height as needed
-
-  # Print the plot
-  print(p)
-}
-```
-
-# Save the object
+# Save the objects
 
 ```{r saveobject}
 saveRDS(Sample1.filt.norm, file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Data/Sample1.filt.norm.rds")
