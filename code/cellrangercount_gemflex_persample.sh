@@ -13,4 +13,4 @@ module load CellRanger/9.0.1
 module load bcl2fastq2/2.20.0
 
 # Run Cell Ranger count
-cellranger multi --id=run_count_gemflex2_persample_cellranger9 --csv=/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/output/output_file_persample2_cellranger9.csv
+cellranger multi --id=run_count_gemflex2_persample_cellranger9 --csv=/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/output/output_file_persample_cellranger9.csv
