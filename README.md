@@ -4,11 +4,17 @@ This repository contains analysis scripts and data used by Chiara Pavan and coll
 ## Overview
 
 The follwoing scripts are used to download the reference huan  genome, quantify human nuclei witin xenograft snRNA seq data, intergate the human nuclei from 3 different samples, define the cell-type, quantify the number of neurons and classify them as DA or non DA and perform DEG analyses.
+
 1)reference_genome.sh
+
 2)cellrangercount_gemflex_persample.sh
+
 3)PerSampleQC+HumanSelection.Rmd
+
 4)Integration_HumanOnly.Rmd
+
 5)NeuronsOnly_Integrated.Rmd
+
 6)DAvsnoDA.Rmd
 
 ## Gene list used to discriminate between human and rat
