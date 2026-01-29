@@ -1,0 +1,730 @@
+---
+title: "20250317_GEMX_FLEX_POOL1_filtered_Sample1.Rmd"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dplyr)
+library(remotes)
+library(R.utils)
+library(harmony)
+library(hdf5r)
+library(clustree)
+library(RColorBrewer)
+library(tidyverse)
+library(pander)
+library(patchwork)
+library(ggplot2)
+library(BiocManager)
+library(cowplot)
+library(purrr)
+library(scuttle)
+library(SingleCellExperiment)
+library(DropletUtils)
+library(Matrix)
+library(scran)
+#library(enrichR)
+```
+
+```{r, include=FALSE}
+#set the working directory
+setwd("/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1")
+# Specify the folder path and file name
+output_folder <- "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Graphs"  # Replace with your desired folder path
+```
+
+```{r, warning=FALSE}
+# make Seurat objects
+Sample1.data <- Read10X(data.dir =                          "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/output/cell_ranger/run_count_gemflex_persample/outs/per_sample_outs/CAPTURE-1-POOL-FLEX_Sample1/count/sample_filtered_feature_bc_matrix")
+
+# Initialize the Seurat object with the filtered data
+Sample1 <- CreateSeuratObject(counts =Sample1.data, project = "GEMX_POOL1", min.cells = 3, min.features = 200)
+```
+
+## QC and selecting cells for further analysis
+Here we visualize QC metrics and use these to filter cells 
+
+* We filter cells that have unique feature counts over 500 or less than 10000 (Low-quality cells or empty droplets will often have very few genes; Cell doublets or multiplets may exhibit an aberrantly high gene count)
+* We filter cells that have <10% mitochondrial counts
+* We filter cells that have nCount_RNA>1000 
+
+```{r mito, warning=FALSE, fig.height=7, fig.width=13}
+# Percentage of reads that map to the mitochondrial genome
+Sample1$percent.mt <- PercentageFeatureSet(Sample1, pattern = "^MT-")
+#Filter cells that have unique filter counts btw 500 and 10000 and <10% mitochondrial counts
+Sample1.filt <- subset(Sample1, subset = nFeature_RNA >500 & nFeature_RNA < 10000 & nCount_RNA>1000 & percent.mt < 10)
+
+# Visualize QC metrics with a Vln Plot in unfiltered and filtered
+f_unfilt <- VlnPlot(Sample1, features = c("nFeature_RNA"))
+f_unfilt <- f_unfilt + 
+  geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) + geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(), # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_nFeature_RNA_unfiltered")  # Add plot title 
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlt_nFeature_RNA_unfiltered.png"), f_unfilt, height = 4, width = 5)
+f_filt <- VlnPlot(Sample1.filt, features = c("nFeature_RNA"))
+f_filt <- f_filt + 
+  geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) + geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(), # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_nFeature_RNA_filtered")  # Add plot title  
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlt_nFeature_RNA_filtered.png"), f_filt, height = 4, width = 5)
+g_unfilt <- VlnPlot(Sample1, features = c("nCount_RNA"))
+g_unfilt <- g_unfilt + 
+  geom_hline(yintercept = 1000,  color = "red", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(), # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_nCount_RNA_unfiltered")  # Add plot title
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlot_RNA_unfiltered.png"), g_unfilt, height = 4, width = 5)
+g_filt <- VlnPlot(Sample1.filt, features = c("nCount_RNA"))
+g_filt <- g_filt + 
+  geom_hline(yintercept = 1000,  color = "red", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(), # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_nCount_RNA_filtered")  # Add plot title  
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlot_RNA_filtered.png"), g_filt, height = 4, width = 5)
+h_unfilt <- VlnPlot(Sample1, features = c("percent.mt"))
+h_unfilt <- h_unfilt + 
+  geom_hline(yintercept = 10, color = "blue", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(),  # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_percent.mt_unfiltered")  # Add plot title
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlot_percent.mt_unfiltered.png"), h_unfilt, height = 4, width = 5)
+h_filt <- VlnPlot(Sample1.filt, features = c("percent.mt"))
+h_filt <- h_filt + 
+  geom_hline(yintercept = 10, color = "blue", linetype = "dashed", size = 0.5) +
+   theme(axis.text.x = element_blank(),  # Remove x-axis text (identity)
+        axis.ticks.x = element_blank(),  # Remove x-axis ticks
+        strip.text.x = element_blank(),  # Remove facet labels (if any)
+        axis.title.x = element_blank(),  # Remove x-axis title (feature name)
+        legend.position = "none") +  # Remove legend
+        labs(title = "Sample1_percent.mt_filtered")  # Add plot title
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlot_percent.mt_filtered.png"), h_filt, height = 4, width = 5)
+# Combine the plots into one row
+combined_plot_QC_unfiltered <- f_unfilt + g_unfilt + h_unfilt + plot_layout(ncol = 3)
+combined_plot_QC_filtered <- f_filt + g_filt + h_filt + plot_layout(ncol = 3)
+
+# Save the combined plot
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlt_QC_combined_unfiltered.png"), combined_plot_QC_unfiltered, height = 4, width = 15)
+ggsave(filename = file.path(output_folder, "Sample1_VlnPlt_QC_combined_filtered.png"), combined_plot_QC_filtered, height = 4, width = 15)
+
+# Display the combined plot
+combined_plot_QC_unfiltered
+combined_plot_QC_filtered
+
+# Visualize QC metrics with a FeatureScatter plot before and after filtering
+plot1_unfilt <- FeatureScatter(Sample1, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot1_filt <- FeatureScatter(Sample1.filt, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2_unfilt <- FeatureScatter(Sample1, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot2_filt <- FeatureScatter(Sample1.filt, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+# Add vertical and horizontal lines
+plot1_unfilt <- plot1_unfilt + 
+  geom_hline(yintercept = 10, color = "blue", linetype = "dashed", size = 0.5) + # y-intercept at 500
+  geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+   theme(legend.position = "none") +  # Remove legend
+  labs(title = "Sample1_Unfiltered")  # Add title
+plot1_filt <- plot1_filt + 
+  geom_hline(yintercept = 10, color = "blue", linetype = "dashed", size = 0.5) +
+  geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+   theme(legend.position = "none") +  # Remove legend
+  labs(title = "Sample1_Filtered")  # Add title
+plot2_unfilt <- plot2_unfilt + 
+  geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) +  # y-intercept at 10000
+  geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) + # y-intercept at 500
+  geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+  theme(legend.position = "none") + # Remove legend
+  labs(title = "Sample1_Unfiltered")  # Add title
+plot2_filt <- plot2_filt + 
+  geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) +  # y-intercept at 1000
+  geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) + # y-intercept at 500
+  geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+  theme(legend.position = "none") + # Remove legend
+  labs(title = "Sample1_Filtered")  # Add title
+
+# Combine the plots into one row
+combined_plot_QC_unfiltered <- plot2_unfilt + plot1_unfilt + plot_layout(ncol = 3)
+combined_plot_QC_filtered <- plot2_filt + plot1_filt + plot_layout(ncol = 3)
+
+# Save the combined plot
+ggsave(filename = file.path(output_folder, "Sample1_ScatterPlt_combined_unfiltered.png"), combined_plot_QC_unfiltered, height = 4, width = 15)
+ggsave(filename = file.path(output_folder, "Sample1_ScatterPlt_combined_filtered.png"), combined_plot_QC_filtered, height = 4, width = 15)
+
+# Display the combined plot
+combined_plot_QC_unfiltered
+combined_plot_QC_filtered
+
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs before and after filtering
+plot1.1<-Sample1@meta.data %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point(size=0.5) + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+    geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) + 
+    geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) +
+    geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+  	ggtitle("Sample 1 before filtering")
+plot2.1<-Sample1.filt@meta.data %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point(size=0.5) + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_hline(yintercept = 10000, color = "blue", linetype = "dashed", size = 0.5) + 
+    geom_hline(yintercept = 500, color = "blue", linetype = "dashed", size = 0.5) +
+    geom_vline(xintercept = 1000, color = "red", linetype = "dashed", size = 0.5) + # x-intercept at 1000
+  	ggtitle("Sample1 after filtering")
+
+combined_plot1<-plot1.1+plot2.1
+
+# Save the combined plot
+ggsave(filename = file.path(output_folder, "Sample1_correlation_Ngenes_UMIs_mito_pre_post_filter.png"), combined_plot1, height = 4, width = 15)
+combined_plot1
+Sample1.filt$SampleID<-"Sample1"
+```
+
+# Normalize the data
+By default, we employ a global-scaling normalization method "LogNormalize" that normalizes the feature expression measurements for each cell by the total expression, multiplies this by a scale factor (10,000 by default), and log-transforms the result. 
+
+```{r normalize2}
+Sample1.filt.norm<-Sample1.filt
+Sample1.filt.norm<- NormalizeData(Sample1.filt.norm, normalization.method = "LogNormalize", scale.factor = 1e4)
+```
+
+***
+# Identification of highly variable features
+We next calculate a subset of features that exhibit high cell-to-cell variation in the dataset (i.e, they are highly expressed in some cells, and lowly expressed in others). The Seurat authors and others have found that focusing on these genes in downstream analysis helps to highlight biological signal in single-cell datasets.
+
+```{r highly variable features, message=TRUE}
+Sample1.filt.norm <- FindVariableFeatures(Sample1.filt.norm, selection.method = 'vst', nfeatures = 2000)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(Sample1.filt.norm), 20)
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(Sample1.filt.norm)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE, max.overlaps = Inf) 
+plot2
+```
+
+# Scaling the data
+Next, we apply a linear transformation (‘scaling’) that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData() function:
+1)Shifts the expression of each gene, so that the mean expression across cells is 0
+2)Scales the expression of each gene, so that the variance across cells is 1
+This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate.
+
+```{r scaling, message=TRUE}
+all.genes <- rownames(Sample1.filt.norm)
+Sample1.filt.norm <- ScaleData(Sample1.filt.norm, features = all.genes)
+```
+
+***
+# Perform Linear Dimensional Reduction
+
+Next we perform PCA on the scaled data. By default, only the previously determined variable features are used as input, but can be defined using `features` argument if you wish to choose a different subset.
+
+```{r PCA, message=TRUE}
+Sample1.filt.norm <- RunPCA(Sample1.filt.norm, features = VariableFeatures(object = Sample1.filt.norm))
+# Examine and visualize PCA results
+print(Sample1.filt.norm$pca, dims = 1:6, nfeatures = 5)
+```
+
+```{r VizDim}
+plot <- VizDimLoadings(Sample1.filt.norm, dims = 1:6, reduction = 'pca', ncol = 2, nfeatures = 10, balanced = TRUE)
+plot <- plot + theme(
+  axis.text.y = element_text(size = 6),  # Adjust the text size
+  axis.text.y.left = element_text(angle = 0, hjust = 1),  # Rotate labels if needed
+  plot.margin = margin(1, 1, 1, 3)  # Increase margin on the left
+)
+ggsave(filename = file.path(output_folder, "Sample1_VizDimLoadings_plot.png"), plot, height = 10, width = 8)
+plot
+```
+
+```{r DimPlot}
+DimPlot(Sample1.filt.norm, reduction='pca')+ NoLegend() + labs(title = "Sample1 PCA Plot")  + theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r multi-heatmap, fig.height=15, fig.width=9}
+DimHeatmap(Sample1.filt.norm, dims = 1:15, cells = 500, balanced = TRUE)
+```
+# Determine the dimensionality 
+We can generate an ‘Elbow plot’: a ranking of principle components based on the percentage of variance explained by each one (ElbowPlot() function).
+
+```{r elbow_plot, fig.height=6, fig.width=10}
+ElbowPlot(Sample1.filt.norm)
+``` 
+
+# Run non-linear dimensional reduction (UMAP/tSNE)
+
+```{r UMAP}
+Sample1.filt.norm <- RunUMAP(Sample1.filt.norm, dims = 1:10)
+DimPlot(Sample1.filt.norm, reduction = 'umap')
+``` 
+ 
+# Clustering the cells
+
+```{r cluster2, fig.height=5, fig.width=7, message=FALSE, warning=FALSE }
+# Determine the K-nearest neighbor graph
+Sample1.filt.norm <- FindNeighbors(Sample1.filt.norm, dims = 1:10)
+# Determine the clusters for 0.1 resolution
+Sample1.filt.norm <- FindClusters(Sample1.filt.norm, resolution = 0.1)
+DimPlot(Sample1.filt.norm, reduction="umap")
+```
+
+Plot the UMAP with colored clusters with Dimplot
+
+```{r cluster UMAP}
+DimPlot(Sample1.filt.norm, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
+```
+
+***
+
+# Further QC
+
+Host vs graft scoring
+
+```{r clustering VaribaleFeatures}
+FeaturePlot(Sample1.filt.norm, features = c("nFeature_RNA"))
+VlnPlot(Sample1.filt.norm, features = c("nFeature_RNA"))
+```
+
+```{r}
+graft1_PCs<-read_tsv( "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/QC_Kristian/PDgraft_ku80sorted_unsorted_PrincipleComponents.tsv")  
+
+#Take graft1_PCs data frame, sort it by the values in the PC_1 column, select the top 100 rows based on the highest values of PC_1 and store it as "graft1PC_1_rat".This identifies the top 100 features that contribute most to the first principal component.
+graft1_PCs %>% top_n(., wt = PC_1,n =  100) ->graft1PC_1_rat
+
+#Take the graft1_PCs data frame, sort it by the lowest values of the PC_1 column, select the top 100 rows with the smallest values of PC_1 (i.e., those that are the least strongly associated with the first principal component) and store it as"graft1PC_human object". This identifies the bottom 100 features that contribute least to the first principal component.
+graft1_PCs %>% top_n(., wt = -PC_1,n =  100) -> graft1PC_human
+
+#Calculate module scores (compute a score for each cell in the Seurat object) based on the expression of the genes in each gene set for two gene sets, one from graft1PC_human and one from graft1PC_1_rat, and add these scores as new metadata columns to the Seurat object. The module score “Graft1_2” now in the metadata is the rat score and “Graft1_1” is the human score.
+Sample1.filt.norm<-AddModuleScore(Sample1.filt.norm, features=list(c("graft1PC_human"=graft1PC_human$gene_name), c("graft1PC_1_rat"=graft1PC_1_rat$gene_name )), name="Graft1_")
+```
+
+```{r}
+#FeatureScatter PC_1 and PC_2 with colored clusters
+FeatureScatter(Sample1.filt.norm, feature1="PC_1", feature2="PC_2", pt.size=0.1)
+#FeatureScatter PC_2 and Graft1_1 (human score)
+FeatureScatter(Sample1.filt.norm, feature1="Graft1_1", feature2="PC_2",pt.size=0.01)
+#FeatureScatter PC_2 and Graft1_2 (rat score)
+FeatureScatter(Sample1.filt.norm, feature1="Graft1_2", feature2="PC_2",  pt.size=0.1)
+#FeaturePlot PC_1 (only cells with PC_1 values greater than -20 displayed in the plot)
+FeaturePlot(Sample1.filt.norm, features = c("PC_1"), min.cutoff = -20)
+#FeaturePlot PC_2 (only cells with PC_2 values greater than 5 displayed in the plot)
+FeaturePlot(Sample1.filt.norm, features = c("PC_2"), min.cutoff = 5)
+```
+
+```{r}
+#Visualize mitochondria genes distribution in the different clusters (usually higher in rats)
+VlnPlot(Sample1.filt.norm, features="percent.mt")
+FeaturePlot(Sample1.filt.norm, features="percent.mt")
+```
+
+```{r}
+#####
+Sample1_rat_threshold<-0.25
+Sample1_human_threshold<-0.0
+
+#FeaturePlot Graft1_1 (human score)
+FeaturePlot(Sample1.filt.norm, features = "Graft1_1")+ggtitle("Principle Component 1: human cells")
+
+#FeaturePlot Graft1_2 (rat score) (only cells with rat score values greater than the set rat_threshold displayed in the plot)
+FeaturePlot(Sample1.filt.norm,min.cutoff = Sample1_rat_threshold, features = "Graft1_2")+ggtitle("Principle Component 1: Rat signature score", subtitle = "Rat cutoff")
+
+#FeaturePlot Graft1_2 (rat score) (only cells with rat score values greater than the set rat_threshold-0.05 displayed in the plot)
+FeaturePlot(Sample1.filt.norm,min.cutoff = Sample1_rat_threshold-0.05, features = "Graft1_2")+ggtitle("Principle Component 1: Rat signature score", subtitle = "Rat cutoff 0.05 more stringent")
+
+#ScatterPlot to visualize the relationship between Rat and Human signature across single cells, with a highlighted rectangular region to focus on the rat set threshold, an horizontal dashed line to indicate a threshold for classifying cells based on their human signature and density contours to show the concentration of cells in different regions of the plot.
+
+FeatureScatter(Sample1.filt.norm,shuffle=T, feature2=c("Graft1_1"), feature1="Graft1_2")+
+  annotate("rect",
+           xmin =Sample1_rat_threshold,
+           xmax = max(Sample1.filt.norm$Graft1_2),
+           ymin =min(Sample1.filt.norm$Graft1_1)-0.1,
+           ymax = max(Sample1.filt.norm$Graft1_1)+0.1,
+  alpha = .2)+
+  geom_abline(slope=0, intercept=Sample1_human_threshold, linetype="dashed", color="blue")+
+  xlab("Score from negPC1: Rat signature")+geom_density_2d(alpha=0.9)+
+  ylab("Score from PC1: Human signature")
+
+#ViolinPLot showing human score and the intercept of the set human threshold
+VlnPlot(Sample1.filt.norm, features="Graft1_1")+  ylab("Score from PC1: Human signature")+ggtitle("Human+ signature")+NoLegend()+
+  geom_abline(slope=0, intercept=Sample1_human_threshold, linetype="dashed", color="blue")
+
+#ViolinPLot showing rat score and the intercept of the set rat threshold
+VlnPlot(Sample1.filt.norm, features="Graft1_2")+  ylab("Score from PC1: Rat signature")+ggtitle("Rat+ signature")+NoLegend()+
+  geom_abline(slope=0, intercept=Sample1_rat_threshold, linetype="dashed", color="red")
+
+# Using dplyr to create the classification of human vs rat
+Sample1.filt.norm@meta.data <- Sample1.filt.norm@meta.data %>%
+  mutate(graft_host_label = case_when(
+    Graft1_1 > Sample1_human_threshold & Graft1_2 > Sample1_rat_threshold ~ "potential_human_rat_doublet",
+    Graft1_1 > Sample1_human_threshold ~ "human",
+    Graft1_2 > Sample1_rat_threshold ~ "rat",
+    TRUE ~ "undetermined"
+  ))
+
+DimPlot(Sample1.filt.norm, group.by = "graft_host_label") +
+  ggtitle("Cells classification")
+
+VlnPlot(Sample1.filt.norm, features = "nFeature_RNA", group.by = "graft_host_label") +
+  theme(axis.title.x = element_blank(),   # Remove x-axis title
+        axis.text.x = element_blank())    # Remove x-axis labels (identity labels)
+
+VlnPlot(Sample1.filt.norm, features = "percent.mt", group.by = "graft_host_label") +
+  theme(axis.title.x = element_blank(),   # Remove x-axis title
+        axis.text.x = element_blank())    # Remove x-axis labels (identity labels)
+
+
+VlnPlot(Sample1.filt.norm, features = "nCount_RNA", group.by = "graft_host_label") +
+  theme(axis.title.x = element_blank(),   # Remove x-axis title
+        axis.text.x = element_blank())    # Remove x-axis labels (identity labels)
+
+FeatureScatter(Sample1.filt.norm, feature1="PC_1", feature2="PC_2", group.by="graft_host_label", pt.size=0.01)
+FeatureScatter(Sample1.filt.norm, feature1="Graft1_1", feature2="PC_2", group.by="graft_host_label", pt.size=0.01)
+FeatureScatter(Sample1.filt.norm, feature1="Graft1_2", feature2="PC_2",  group.by="graft_host_label", pt.size=0.1)
+FeatureScatter(Sample1.filt.norm,shuffle=T, feature2=c("Graft1_1"), feature1="Graft1_2", group.by = "graft_host_label")+
+  annotate("rect",
+           xmin =Sample1_rat_threshold,
+           xmax = max(Sample1.filt.norm$Graft1_2),
+           ymin =min(Sample1.filt.norm$Graft1_1)-0.1,
+           ymax = max(Sample1.filt.norm$Graft1_1)+0.1,
+  alpha = .2)+
+  geom_abline(slope=0, intercept=Sample1_human_threshold, linetype="dashed", color="blue")+
+  xlab("Score from negPC1: Rat signature")+geom_density_2d(alpha=0.9)+
+  ylab("Score from PC1: Human signature")
+```
+
+```{r}
+#Make a list of genes related to the project
+vmDAList<-list(
+"neuronalMarker"=c("NCAM1", "MAP2", "RBFOX3", "SYN1"),
+"vmDANeuron"=c("TH", "EN1", "LMX1A", "FOXA2", "OTX2", "SLC6A3", "SLC18A2", "DRD1", "DRD2", "NR4A2", "DDC", "DLK1", "ALDH1A2", "ADCYAP1", "CORIN", "SHH"),
+"A9vmDA"=c("PITX3", "KCNJ6", "ALDH1A1"),
+"A10vmDA"=c("CALB1"),
+"GDNF pathway"=c("GDNF", "NRTN", "RET", "GFRA1", "GFRA2", "GFRA3", "GFRA4", "FRS2", "SHC1", "MAPK1", "MAPK3", "MAP2K1", "MAP2K2"),
+"Netrin1 pathway"= c("NTN1", "DCC", "UNC5A", "UNC5B", "NEO1", "ROBO1", "DSCAM" ))
+
+
+#FeaturePlot of the Seurat Object for each vmDAList gene 
+plot_list<-list()
+
+for(listName in names(vmDAList)) {
+  unlist(vmDAList[[listName]])->j
+  for(i in j){
+    try(
+plot_list[[i]]<-  FeaturePlot(Sample1.filt.norm, features = i)+ggtitle(paste0(listName,": " ,i))
+    )
+ }
+}
+
+plot_list
+```
+
+***
+
+# HumanOnly Sample
+
+
+
+```{r}
+
+###########3 set threshold: #####################
+
+#Crate a new Seurat Object called Sample1HumanOnly containing only human cells (based on the set human and rat thresholds)
+Sample1humanOnly<-subset(Sample1.filt.norm, subset= Graft1_2<Sample1_rat_threshold & Graft1_1>Sample1_human_threshold)
+
+#Crate a new Seurat Object called ratOnly containing only rat cells (basd on the seet human and rat thresholds)
+Sample1ratOnly<-subset(Sample1.filt.norm, subset= Graft1_2>=Sample1_rat_threshold & Graft1_1<=Sample1_human_threshold)
+##################################################
+
+
+#table("allCells"=Sample1.filt.norm$sampleName)
+#table("humanCells"=humanOnly$sampleName)
+#table("humanCells"=humanOnly$BatchName)
+#table("humanCells"=humanOnly$ELN_10x)
+
+#table("allCells"=Sample1.filt.norm$SampleDetail, Sample1.filt.norm$PuritySorted)
+#table("humanCells"=humanOnly$SampleDetail, humanOnly$PuritySorted)
+# Create a vector (humanCells) containing the cell identifiers of the human cells in the humanOnly Seurat object.
+Sample1humanCells<-WhichCells(Sample1humanOnly)
+#how many rat cells?
+paste0("Rat cells removed: ", length(setdiff( colnames(Sample1.filt.norm),Sample1humanCells)))
+
+rawdataDir <- "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/QC_Kristian"
+file_path <- file.path(rawdataDir, "Sample1_graft_LenientRatFilter.rds")
+write_rds(Sample1humanCells, file_path)
+```
+
+```{r}
+#Violin Plot showing the cells classified as Human based on the set threshold
+VlnPlot(Sample1humanOnly, features="Graft1_1")+  ylab("Score from PC1: Human signature")+ggtitle("Human+ signature")+NoLegend()+
+  geom_abline(slope=0, intercept=0.2, linetype="dashed", color="blue")
+#Violin Plot showing the cells classified as Rat based on the set threshold
+VlnPlot(Sample1ratOnly, features="Graft1_2")+  ylab("Score from PC1: Rat signature")+ggtitle("Rat+ signature")+NoLegend()+
+  geom_abline(slope=0, intercept=0.2, linetype="dashed", color="red")
+```
+
+```{r}
+
+#FeaturePlot of HumanOnly Seurat Object, Graft1_1 (human score)
+FeaturePlot(Sample1humanOnly,min.cutoff=0, features = "Graft1_1")+ggtitle("Principle Component 1: human cells")
+#FeaturePlot of HumanOnly Seurat Object, Graft1_2 (rat score) (only cells with rat score values greater than the set rat_threshold displayed in the plot)
+FeaturePlot(Sample1humanOnly,min.cutoff = Sample1_rat_threshold, features = "Graft1_2")+ggtitle("Principle Component 1: Rat signature score")
+
+#FeaturePlot of HumanOnly Seurat Object, Graft1_2 (rat score) (only cells with rat score values greater than the set rat_threshold-0.05 displayed in the plot)
+FeaturePlot(Sample1humanOnly,min.cutoff = Sample1_rat_threshold-0.05, features = "Graft1_2")+ggtitle("Principle Component 1: Rat signature score", subtitle = "Rat cutoff 0.05 more stringent")
+
+#ScatterPlot to visualize the relationship between Rat and Human signature in the HumanOnly SeuratObejct
+FeatureScatter(Sample1humanOnly,shuffle=T, feature2=c("Graft1_1"), feature1="Graft1_2")+
+  xlab("Score from negPC1: Rat signature")+geom_density_2d(alpha=0.9)+
+  ylab("Score from PC1: Human signature")+ylim(0,NA)+xlim(NA, 1)
+
+```
+
+```{r}
+#Make a list of genes related to the stroke project
+vmDAList<-list(
+"neuronalMarker"=c("NCAM1", "MAP2", "RBFOX3", "SYN1"),
+"vmDANeuron"=c("TH", "EN1", "LMX1A", "FOXA2", "OTX2", "SLC6A3", "SLC18A2", "DRD1", "DRD2", "NR4A2", "DDC", "DLK1", "ALDH1A2", "ADCYAP1", "CORIN", "SHH"),
+"A9vmDA"=c("PITX3", "KCNJ6", "ALDH1A1"),
+"A10vmDA"=c("CALB1"),
+"GDNF pathway"=c("GDNF", "NRTN", "RET", "GFRA1", "GFRA2", "GFRA3", "GFRA4", "FRS2", "SHC1", "MAPK1", "MAPK3", "MAP2K1", "MAP2K2"),
+"Netrin1 pathway"= c("NTN1", "DCC", "UNC5A", "UNC5B", "NEO1", "ROBO1", "DSCAM" )
+)
+
+#FeaturePlot of humanOnly Seurat Object for each gene in the list
+plot_list<-list()
+
+for(listName in names(vmDAList)) {
+  unlist(vmDAList[[listName]])->j
+  for(i in j){
+    try(
+plot_list[[i]]<-  FeaturePlot(Sample1humanOnly, features = i)+ggtitle(paste0(listName,": " ,i))
+    )
+ }
+}
+
+plot_list
+```
+
+
+***
+# Normalize the data2
+
+```{r normalize3}
+Sample1humanOnly.norm<-Sample1humanOnly
+Sample1humanOnly.norm<- NormalizeData(Sample1humanOnly.norm, normalization.method = "LogNormalize", scale.factor = 1e4)
+```
+
+***
+# Identification of highly variable features
+
+```{r highly variable features2, message=TRUE}
+Sample1humanOnly.norm <- FindVariableFeatures(Sample1humanOnly.norm, selection.method = 'vst', nfeatures = 2000)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(Sample1humanOnly.norm), 20)
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(Sample1humanOnly.norm)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE, max.overlaps = Inf) 
+plot2
+```
+
+# Scaling the data
+
+```{r scaling2, message=TRUE}
+all.genes <- rownames(Sample1humanOnly.norm)
+Sample1humanOnly.norm <- ScaleData(Sample1humanOnly.norm, features = all.genes)
+```
+
+***
+# Perform Linear Dimensional Reduction
+
+```{r PCA2, message=TRUE}
+Sample1humanOnly.norm <- RunPCA(Sample1humanOnly.norm, features = VariableFeatures(object = Sample1humanOnly.norm))
+# Examine and visualize PCA results
+print(Sample1humanOnly.norm$pca, dims = 1:6, nfeatures = 5)
+```
+```{r VizDim2}
+plot <- VizDimLoadings(Sample1humanOnly.norm, dims = 1:6, reduction = 'pca', ncol = 2, nfeatures = 10, balanced = TRUE)
+plot <- plot + theme(
+  axis.text.y = element_text(size = 10),  # Adjust the text size
+  axis.text.y.left = element_text(angle = 0, hjust = 1),  # Rotate labels if needed
+  plot.margin = margin(1, 1, 1, 3)  # Increase margin on the left
+)
+ggsave(filename = file.path(output_folder, "Sample1HumanOnly_VizDimLoadings_plot.png"), plot, height = 10, width = 8)
+plot
+```
+
+```{r DimPlot2}
+DimPlot(Sample1humanOnly.norm, reduction='pca')+ NoLegend() + labs(title = "Sample1humanOnly PCA Plot")  + theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r multi-heatmap2, fig.height=15, fig.width=9}
+DimHeatmap(Sample1humanOnly.norm, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+```{r elbow_plot2, fig.height=6, fig.width=10}
+ElbowPlot(Sample1humanOnly.norm)
+``` 
+
+
+# Run non-linear dimensional reduction (UMAP/tSNE)
+
+```{r UMAP2}
+Sample1humanOnly.norm <- RunUMAP(Sample1humanOnly.norm, dims = 1:10)
+DimPlot(Sample1humanOnly.norm, reduction = 'umap')
+``` 
+
+*** 
+# Clustering the cells
+```{r cluster3, fig.height=5, fig.width=7, message=FALSE, warning=FALSE }
+# Determine the K-nearest neighbor graph
+Sample1humanOnly.norm <- FindNeighbors(Sample1humanOnly.norm, dims = 1:10)
+# Determine the clusters for 0.5 resolution
+Sample1humanOnly.norm <- FindClusters(Sample1humanOnly.norm, resolution = 0.2)
+DimPlot(Sample1humanOnly.norm, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
+```
+
+
+***
+# Cluster Markers
+
+Visualization of expression of markers  of interest.
+```{r clustering plot2}
+DAneurons<-c ( "TH", "PITX3")
+Astrocytes<-c("GFAP","SOX9", "SLC1A3", "AQP4", "S100B")
+DAprogenitors<- c( "OTX2", "FOXA2", "CORIN", "SHH", "ALDH1A1", "LMX1A")
+all_features <- c(DAneurons, Astrocytes, DAprogenitors)
+VlnPlot(Sample1humanOnly.norm, features = DAneurons)
+VlnPlot(Sample1humanOnly.norm, features = Astrocytes)
+VlnPlot(Sample1humanOnly.norm, features = DAprogenitors)
+```
+
+```{r clustering feature plot2}
+FeaturePlot(Sample1humanOnly.norm, features = DAneurons)
+FeaturePlot(Sample1humanOnly.norm, features = Astrocytes)
+FeaturePlot(Sample1humanOnly.norm, features = DAprogenitors)
+```
+
+```{r clustering dotplot2}
+DotPlot(Sample1humanOnly.norm, features = DAneurons)
+DotPlot(Sample1humanOnly.norm, features = Astrocytes)
+DotPlot(Sample1humanOnly.norm, features = DAprogenitors)
+DotPlot(Sample1humanOnly.norm, features = all_features) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+```{r, message=FALSE}
+#FeaturePlot of the Seurat Object for each vmDAList gene 
+plot_list<-list()
+
+for(listName in names(vmDAList)) {
+  unlist(vmDAList[[listName]])->j
+  for(i in j){
+    try(
+plot_list[[i]]<-  VlnPlot(Sample1humanOnly.norm, features = i)+ggtitle(paste0(listName,": " ,i))
+    )
+ }
+}
+
+plot_list
+
+# Initialize an empty list to store the plots
+plot_list <- list()
+
+# Loop through each list in vmDAList
+for (listName in names(vmDAList)) {
+  
+  # Unlist the markers in the current list
+  unlist(vmDAList[[listName]]) -> j
+  
+  # Loop through each marker in the current list
+  for (i in j) {
+    
+    try({
+      # Create the Violin Plot for the current marker
+      p <- VlnPlot(Sample1humanOnly.norm, features = i) + 
+        ggtitle(paste0(listName, ": ", i)) +  # Set the plot title to the list name and marker
+        xlab("Gene") +                      # Set the x-axis label to "Gene"
+        ylab("Cluster") +                   # Set the y-axis label to "Cluster"
+        theme(
+          plot.title = element_text(hjust = 0.5),  # Center the plot title
+          axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels
+        )
+      
+      # Store the plot in the plot_list
+      plot_list[[paste0(listName, "_", i)]] <- p
+      
+      # Save the plot to the specified output folder
+      # Create a safe filename by replacing non-alphanumeric characters with "_"
+      safe_name <- str_replace_all(paste0(listName, "_", i), "[^[:alnum:]]", "_")
+      filename <- paste0(output_folder, "/", safe_name, "_Sample1.png")
+      
+      # Save the plot as a .png file
+      ggsave(filename, plot = p, width = 10, height = 8)  # Adjust width and height as needed
+    })
+  }
+}
+
+# Optionally, return the plot_list if needed
+plot_list
+
+```
+
+```{r, message=FALSE}
+# Loop through each group in vmDAList
+# Loop through each group in vmDAList
+for (group_name in names(vmDAList)) {
+  markers <- vmDAList[[group_name]]
+  
+  # Create the DotPlot for the current group of markers
+  p <- DotPlot(Sample1humanOnly.norm, features = markers) + 
+    ggtitle(group_name) +  # Set the plot title to the group name
+    xlab("Gene") +         # Set the x-axis label to "Gene"
+    ylab("Cluster") +      # Set the y-axis label to "Cluster"
+    theme(
+      plot.title = element_text(hjust = 0.5),  # Center the plot title
+      axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels
+    )
+  
+  # Create a safe filename using the group name and "Sample1"
+  safe_group_name <- str_replace_all(group_name, "[^[:alnum:]]", "_")  # Replace non-alphanumeric characters with "_"
+  filename <- paste0(output_folder, "/", safe_group_name, "_Sample1.png")
+  
+  # Save the plot to the specified output folder
+  ggsave(filename, plot = p, width = 5, height = 4)  # Adjust width and height as needed
+
+  # Print the plot
+  print(p)
+}
+```
+
+# Save the object
+
+```{r saveobject}
+saveRDS(Sample1.filt.norm, file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Data/Sample1.filt.norm.rds")
+saveRDS(Sample1humanOnly, file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Data/Sample1humanOnly.rds")
+saveRDS(Sample1humanOnly.norm, file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Data/Sample1humanOnly.norm.rds")
+```
+***
