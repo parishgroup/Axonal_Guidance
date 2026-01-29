@@ -1,0 +1,34 @@
+# This template shows the possible cellranger multi config CSV options for analyzing Single Cell Gene Expression with Feature Barcode Technology (Antibody Capture, CRISPR Guide Capture, Cell Multiplexing, Antigen Capture), Fixed RNA Profiling, or Single Cell Immune Profiling data.
+# These options cannot be used all together - see section descriptions for detail.
+# Use 'cellranger multi-template --parameters' to see descriptions of all parameters.
+# Please see cellranger multi documentation for details and experimental design-specific examples at https://www.10xgenomics.com/support.
+
+[gene-expression]
+reference, /data/gpfs/projects/punim2346/chiara/biotools/refdata-gex-GRCh38-2024-A
+chemistry,auto
+no-secondary,false
+create-bam,true
+probe-set, /data/gpfs/projects/punim2346/chiara/biotools/Probe_Set/Chromium_Human_Transcriptome_Probe_Set_v1.1.0_GRCh38-2024-A.csv
+filter-probes, true
+# r1-length,<int>
+# r2-length,<int>
+# expect-cells,<int>
+# force-cells,<int>
+# check-library-compatibility,<true|false>
+# include-introns,<true|false>
+# min-assignment-confidence,<0.9>, # Optional, Cell Multiplexing only
+# cmo-set,/path/to/CMO/reference, # Optional, Cell Multiplexing only
+# barcode-sample-assignment,/path/to/barcode-sample-assignment/csv, # Optional, Cell Multiplexing only.
+
+
+[libraries]
+fastq_id,fastqs,lanes,feature_types,subsample_rate
+CAPTURE-1-POOL-FLEX,/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/data/RawData,any,Gene Expression,
+
+
+[samples] # for Fixed RNA Profiling multiplexed libraries only
+sample_id,probe_barcode_ids,description, expect_cells,force_cells
+CAPTURE-1-POOL-FLEX_Sample1, BC001 ,,,
+CAPTURE-1-POOL-FLEX_Sample2, BC002 ,,,
+CAPTURE-1-POOL-FLEX_Sample3, BC003 ,,,
+CAPTURE-1-POOL-FLEX_Sample4, BC004 ,,,
