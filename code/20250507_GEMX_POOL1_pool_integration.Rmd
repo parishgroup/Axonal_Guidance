@@ -1,0 +1,498 @@
+---
+title: "20250408_GEMX_POOL1_integration"
+output: html_document
+date: "2025-04-08"
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(dplyr)
+library(remotes)
+library(R.utils)
+library(harmony)
+library(hdf5r)
+library(clustree)
+library(RColorBrewer)
+library(tidyverse)
+library(pander)
+library(patchwork)
+library(ggplot2)
+library(BiocManager)
+library(cowplot)
+library(purrr)
+library(scuttle)
+library(SingleCellExperiment)
+library(DropletUtils)
+library(Matrix)
+library(scran)
+library(HGNChelper)
+library(openxlsx)
+library(ggpubr)
+library(presto)
+library(edgeR)
+```
+
+```{r, include=FALSE}
+#set the working directory
+setwd("/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged")
+# Specify the folder path and file name
+output_folder <- "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged/Graphs" 
+```
+
+# Load the objects
+
+```{r load_object}
+Sample1humanOnly.norm<-readRDS(file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample1/Data/Sample1humanOnly.norm.rds")
+Sample2humanOnly.norm<-readRDS(file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample2/Data/Sample2humanOnly.norm.rds")
+Sample3humanOnly.norm<-readRDS(file = "/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Sample3/Data/Sample3humanOnly.norm.rds")
+```
+
+# Add SampleID
+
+```{r sample_ID}
+Sample1humanOnly.norm$SampleID<-"Sample1"
+Sample2humanOnly.norm$SampleID<-"Sample2"
+Sample3humanOnly.norm$SampleID<-"Sample3"
+```
+
+# Merge the data
+
+```{r merge}
+SampleMerged<-merge(x=Sample1humanOnly.norm, y=Sample2humanOnly.norm, merge.data=TRUE)
+SampleMerged<-merge(x=SampleMerged, y=Sample3humanOnly.norm, merge.data=TRUE)
+paste0("Sample1 cells number: ", (ncol(Sample1humanOnly.norm)))
+paste0("Sample2 cells number: ", (ncol(Sample2humanOnly.norm)))
+paste0("Sample3 cells number: ", (ncol(Sample3humanOnly.norm)))
+paste0("Merged Sample cells number: ", (ncol(SampleMerged)))
+```
+# Identify highly variable features
+
+```{r variablefeatures, message=FALSE}
+SampleMerged <- FindVariableFeatures(SampleMerged, selection.method = 'vst', nfeatures = 2000)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(SampleMerged), 20)
+# plot variable features with and without labels
+plot2 <- VariableFeaturePlot(SampleMerged)
+plot2 <- LabelPoints(plot = plot2, points = top10, repel = TRUE, max.overlaps = Inf) 
+plot2
+```
+
+# Scaling the data
+
+```{r scaling, message=FALSE}
+all.genes <- rownames(SampleMerged)
+SampleMerged <- ScaleData(SampleMerged, features = all.genes)
+```
+
+# Perform  Dimensional Reduction
+
+```{r PCA UMAP, message=FALSE}
+SampleMerged <- RunPCA(SampleMerged, features = VariableFeatures(object = SampleMerged))
+SampleMerged <- RunUMAP(SampleMerged, dims = 1:9)
+
+#Visualization
+
+DimPlot(SampleMerged, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + ggtitle("UMAP")
+DimPlot(SampleMerged, reduction='umap', group.by = "SampleID")
+DimPlot(SampleMerged, reduction='pca', group.by = "SampleID")
+DimPlot(SampleMerged, reduction='pca', group.by = "SampleID")+ labs(title = "Not merged PCA Plot Sample")  + theme(plot.title = element_text(hjust = 0.5))
+DimPlot(subset(SampleMerged, subset = SampleID == "Sample1"), group.by = "SampleID", reduction = "pca", cols =  "#F68282") + 
+  labs(title = "PCA for Sample1")
+DimPlot(subset(SampleMerged, subset = SampleID == "Sample2"), group.by = "SampleID", reduction = "pca", cols =  "#00BA38") + 
+  labs(title = "PCA for Sample2")
+DimPlot(subset(SampleMerged, subset = SampleID == "Sample3"), group.by = "SampleID", reduction = "pca", cols =  "#619CFF") + 
+  labs(title = "PCA for Sample3")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample1"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample1")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample2"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample2")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample3"),  
+            features = "nCount_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample3")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample1"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample1")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample2"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample2")
+FeaturePlot(subset(SampleMerged, subset = SampleID == "Sample3"),  
+            features = "nFeature_RNA", 
+            reduction = "pca") + 
+  labs(title = "PCA for Sample3")
+```
+ 
+
+#Integration
+
+```{r integration}
+SampleMerged_Int<-IntegrateLayers(object=SampleMerged, method=CCAIntegration, orig.reduction="pca", new.reduction="integrated.cca", verbose=FALSE)
+# re-join layers after integration
+SampleMerged_Int[["RNA"]] <- JoinLayers(SampleMerged_Int[["RNA"]])
+```
+
+
+# Perform  Dimensional Reduction on Integrated Object
+
+```{r PCA UMAP int, message=FALSE}
+ElbowPlot(SampleMerged_Int)
+DimPlot(SampleMerged_Int, reduction='pca', group.by = "SampleID")+ labs(title = "SampleMerged_Int")  + theme(plot.title = element_text(hjust = 0.5))
+SampleMerged_Int <- RunUMAP(SampleMerged_Int, dims = 1:11, reduction = "integrated.cca")
+```
+
+# Clustering
+
+```{r  clustering int}
+SampleMerged_Int <- FindNeighbors(SampleMerged_Int, reduction = "integrated.cca", dims = 1:11)
+SampleMerged_Int <- FindClusters(SampleMerged_Int, resolution = 0.6)
+```
+
+# Clustering Visualization
+
+```{r, clustering int visualization}
+# See the different samples in the umap
+DimPlot(SampleMerged_Int, reduction = "umap", label = TRUE, repel = TRUE, label.box = TRUE) + NoLegend()
+DimPlot(subset(SampleMerged_Int, subset = SampleID == "Sample1"), reduction = "umap") + 
+    labs(title = "UMAP for Sample1") + 
+    theme(plot.title = element_text(hjust = 0.5))
+DimPlot(subset(SampleMerged_Int, subset = SampleID == "Sample2"), reduction = "umap") + 
+    labs(title = "UMAP for Sample2") + 
+    theme(plot.title = element_text(hjust = 0.5))
+DimPlot(subset(SampleMerged_Int, subset = SampleID == "Sample3"), reduction = "umap") + 
+    labs(title = "UMAP for Sample3") + 
+    theme(plot.title = element_text(hjust = 0.5))
+# ViolinPLot nFeature
+VlnPlot(SampleMerged_Int, group.by = "seurat_clusters",features=c("nFeature_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample1"), group.by = "seurat_clusters",features=c("nFeature_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample2"), group.by = "seurat_clusters",features=c("nFeature_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample3"), group.by = "seurat_clusters",features=c("nFeature_RNA"))
+# ViolinPLot nCount
+VlnPlot(SampleMerged_Int, group.by = "seurat_clusters",features=c("nCount_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample1"), group.by = "seurat_clusters",features=c("nCount_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample2"), group.by = "seurat_clusters",features=c("nCount_RNA"))
+VlnPlot(subset(SampleMerged_Int, subset = SampleID == "Sample3"), group.by = "seurat_clusters",features=c("nCount_RNA"))
+
+#Visualize samples/cluster/cell distribution
+
+# Extract necessary columns
+tmp <- SampleMerged_Int@meta.data[, c("nFeature_RNA", "seurat_clusters", "SampleID")]
+# Convert to a data frame
+tmp <- as.data.frame(tmp)
+
+ggplot(tmp, aes(x = factor(seurat_clusters), y = nFeature_RNA, fill = SampleID)) +
+  geom_violin(position = position_dodge(width = 0.8), alpha = 0.7)  +
+  labs(x = "Clusters", y = "nFeature_RNA", title = "nFeature_RNA distribution by Cluster and SampleID") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggplot(tmp, aes(x = factor(seurat_clusters), y = nFeature_RNA, fill = SampleID)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA, alpha = 0.7) +
+  labs(x = "Clusters", y = "nFeature_RNA", title = "nFeature_RNA distribution by Cluster and SampleID") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# Summarize the data to get the mean nFeature_RNA per cluster and SampleID
+summary_data <- tmp %>%
+  group_by(seurat_clusters, SampleID) %>%
+  summarise(mean_nFeature_RNA = mean(nFeature_RNA)) %>%
+  ungroup()
+# Create the plot with a single bar per cluster colored by SampleID
+ggplot(summary_data, aes(x = factor(seurat_clusters), y = mean_nFeature_RNA, fill = SampleID)) +
+  geom_bar(stat = "identity") +  # stat = "identity" uses the actual summarized values
+  labs(x = "Clusters", y = "Mean nFeature_RNA", title = "Mean nFeature_RNA by Cluster and SampleID") 
+
+ggplot(summary_data, aes(x = factor(seurat_clusters), y = mean_nFeature_RNA, fill = SampleID)) +
+  geom_bar(stat = "identity", position = position_dodge()) +  # stat = "identity" uses the actual summarized values
+  labs(x = "Clusters", y = "Mean nFeature_RNA", title = "Mean nFeature_RNA by Cluster and SampleID") 
+
+# Extract necessary columns from metadata
+tmp <- SampleMerged_Int@meta.data[, c("nCount_RNA", "seurat_clusters", "SampleID")]
+# Convert to a data frame
+tmp <- as.data.frame(tmp)
+
+ggplot(tmp, aes(x = factor(seurat_clusters), y = nCount_RNA, fill = SampleID)) +
+  geom_violin(position = position_dodge(width = 0.8), alpha = 0.7)  +
+  labs(x = "Clusters", y = "nCount_RNA", title = "nCount_RNA distribution by Cluster and SampleID") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggplot(tmp, aes(x = factor(seurat_clusters), y = nCount_RNA, fill = SampleID)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA, alpha = 0.7) +
+  labs(x = "Clusters", y = "nCount_RNA", title = "nCount_RNA distribution by Cluster and SampleID") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggplot(tmp, aes(x = factor(seurat_clusters), y = nCount_RNA, fill = SampleID)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.shape = NA, alpha = 0.7) +
+  labs(x = "Clusters", y = "nCount_RNA", title = "nCount_RNA distribution by Cluster and SampleID") +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_y_continuous(limits = c(0, 45000), oob = scales::squish)
+
+# Summarize the data: Sum the nCount_RNA for each cluster and SampleID
+summary_data <- tmp %>%
+  group_by(seurat_clusters, SampleID) %>%
+  summarise(mean_nCount_RNA = mean(nCount_RNA)) %>%
+  ungroup()
+
+# Create the bar plot with total nCount_RNA per cluster, colored by SampleID
+ggplot(summary_data, aes(x = factor(seurat_clusters), y = mean_nCount_RNA, fill = SampleID)) +
+  geom_bar(stat = "identity", position = "stack") +  # Use stacked bars
+  labs(x = "Clusters", y = "Mean nCount_RNA", title = "Mean nCount_RNA by Cluster and SampleID")
+
+ggplot(summary_data, aes(x = factor(seurat_clusters), y = mean_nCount_RNA, fill = SampleID)) +
+  geom_bar(stat = "identity", position = position_dodge()) +  # Side-by-side bars
+  labs(x = "Clusters", y = "Mean nCount_RNA", title = "Mean nCount_RNA by Cluster and SampleID")
+
+
+# Extract the necessary columns from the metadata
+tmp <- SampleMerged_Int@meta.data[, c("seurat_clusters", "SampleID")]
+
+# Convert to a data frame
+tmp <- as.data.frame(tmp)
+
+# Count the number of cells in each cluster, grouped by SampleID
+cell_count_data <- tmp %>%
+  group_by(seurat_clusters, SampleID) %>%
+  summarise(cell_count = n()) %>%
+  ungroup()
+
+# Create the bar plot with the number of cells per cluster, colored by SampleID
+ggplot(cell_count_data, aes(x = factor(seurat_clusters), y = cell_count, fill = SampleID)) +
+  geom_bar(stat = "identity", position = "stack") +  
+  labs(x = "Clusters", y = "Number of Cells", title = "Number of Cells per Cluster and SampleID") 
+
+ggplot(cell_count_data, aes(x = factor(seurat_clusters), y = cell_count, fill = SampleID)) +
+  geom_bar(stat = "identity", position = position_dodge()) + 
+  labs(x = "Clusters", y = "Number of Cells", title = "Number of Cells per Cluster and SampleID")
+
+
+```
+
+```{r, markers visualization}
+FeaturePlot(SampleMerged_Int, "GFAP")
+FeaturePlot(SampleMerged_Int, "TH")
+FeaturePlot(SampleMerged_Int, "SOX2")
+FeaturePlot(SampleMerged_Int, "OLIG1")
+FeaturePlot(SampleMerged_Int, "OLIG2")
+FeaturePlot(SampleMerged_Int, "SYP")
+FeaturePlot(SampleMerged_Int, "SYN1")
+FeaturePlot(SampleMerged_Int, "MAPT")
+FeaturePlot(SampleMerged_Int, "RBFOX3")
+FeaturePlot(SampleMerged_Int, "MAP2")
+FeaturePlot(SampleMerged_Int, "INA")
+FeaturePlot(SampleMerged_Int, "GAP43")
+FeaturePlot(SampleMerged_Int, "NRP1")
+FeaturePlot(SampleMerged_Int, "AQP4")
+FeaturePlot(SampleMerged_Int, "ELAVL3")
+FeaturePlot(SampleMerged_Int, "ELAVL4")
+FeaturePlot(SampleMerged_Int, "STMN2")
+FeaturePlot(SampleMerged_Int, "FOXP3")
+FeaturePlot(SampleMerged_Int, "RBFOX3")
+```
+
+```{r, message=FALSE}
+# Create the list of markers
+vmDAList <- list(
+  "neuronalMarkers" = c("NCAM1", "MAP2", "RBFOX3", "SYN1", "SYP", "MAPT", "INA", "GAP43", "NRP1", "TUBB3"),
+  "astrocytesMarker" = c ("GFAP","SOX9", "SLC1A3", "AQP4", "S100B", "ALDH1L1"),
+  "NeuralStemCellsMarkers" = c ("SOX2", "PROM1", "NES", "MSI1", "VIM", "POU3F3", "L1CAM","RELN"),
+  "Neuroblasts" = c ("NEUROD1", "DCX", "DLX2", "PROX1", "EOMES"),
+  "OligodendrocytePrecursorCells" = c ("LHFPL3", "MEGF11", "PCDH15", "PDGFRA", "CSPG4", "RNF4"),
+  "Oligodendrocytes" = c ("OLIG1", "OLIG2", "OLIG3", "CLDN11", "MBP", "MOG", "MAG", "GALC", "CNP", "SOX10", "FA2H", "UGT8"),
+  "GABAergic" = c("SLC6A1", "GABBR1", "GABBR2", "GAD2", "GAD1", "SLC32A1"),
+  "Glutamatergic" = c ( "SLC17A7","SLC17A6","GRIN1","GRIN2B","GLS","GLUL","GRIN2A"),
+  "Sero" = c("TPH1","SLC6A4","FEV","HTR1A","HTR1B"),
+  "Choli" = c("CHAT","SLC18A3","ACHE"),
+  "vmDANeuron" = c("TH", "EN1", "LMX1A", "FOXA2", "OTX2", "SLC6A3", "SLC18A2", "DRD1", "DRD2", "NR4A2", "DDC", "DLK1", "ALDH1A2", "ADCYAP1", "CORIN", "SHH"),
+  "A9vmDA" = c("PITX3", "KCNJ6", "ALDH1A1"),
+  "A10vmDA" = c("CALB1")
+)
+
+# Create an empty data frame to hold the marker names and genes
+marker_gene_df <- data.frame(Marker = character(), Gene = character(), stringsAsFactors = FALSE)
+
+# Loop through each group in vmDAList
+for (group_name in names(vmDAList)) {
+  markers <- vmDAList[[group_name]]
+  
+  # Create the DotPlot for the current group of markers
+  p <- DotPlot(SampleMerged_Int, features = markers, group.by = "seurat_clusters") + 
+    ggtitle(group_name) +  # Set the plot title to the group name
+    xlab("Gene") +         # Set the x-axis label to "Gene"
+    ylab("Clusters") +      # Set the y-axis label to "Cluster"
+    theme(
+      plot.title = element_text(hjust = 0.5),  # Center the plot title
+      axis.text.x = element_text(angle = 45, hjust = 1)  # Rotate x-axis labels
+    )
+  
+  # Create a safe filename using the group name 
+  safe_group_name <- str_replace_all(group_name, "[^[:alnum:]]", "_")  # Replace non-alphanumeric characters with "_"
+  filename <- paste0(output_folder, "/", safe_group_name, "_SampleMerged_clusters_Int.png")
+  
+  # Save the plot to the specified output folder
+  ggsave(filename, plot = p, width = 5, height = 4)  # Adjust width and height as needed
+
+  # Print the plot
+  print(p)
+}
+```
+
+
+# Cell Annotation
+
+```{r cell.annotation, results='hide', message=FALSE}
+# Ensure that the number of new.cluster.ids matches the number of 
+# Use named vectors instead of a list
+new.cluster.ids <- c("Neurons", "Astrocytes", "Oligos", "Neurons", "Neurons", 
+                     "Mix", "Neurons", "Neural Stem Cells", "Neural Stem Cells", "Astrocytes", "Neural Stem Cells", "Neurons", "Oligos", "Oligos", "Astrocytes", "Neurons", "Oligos")
+names(new.cluster.ids) <- 0:16  # Assign numeric names to the vector elements (0 to 9)
+# Assign the cell type column based on the seurat_clusters
+SampleMerged_Int$cell_type <- factor(as.character(new.cluster.ids[SampleMerged_Int$seurat_clusters]), 
+                                 levels = unique(new.cluster.ids))
+SampleMerged_Int <- RenameIdents(SampleMerged_Int, new.cluster.ids)
+
+# Check the first few rows to ensure it's been assigned correctly
+# Assign custom colors to each group
+DimPlot(SampleMerged_Int,
+        cols = c("black","magenta",  "darkgreen", "deepskyblue", "blue"))
+
+```
+
+# Save the human object
+```{r save.human, results='hide', message=FALSE}
+saveRDS(SampleMerged_Int, file="/data/gpfs/projects/punim2346/chiara/projects/axonal_guidance/analyses/R_output/20250317_GEMX_FLEX_POOL1/Merged/Data/SampleMerged_Int.rds")
+```
+
+# Try scType
+
+```{r scType, results='hide', message=FALSE}
+# load gene set preparation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+# load cell type annotation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+
+# DB file
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx"
+tissue = "Brain"
+# e.g. Immune system,Pancreas,Liver,Eye,Kidney,Brain,Lung,Adrenal,Heart,Intestine,Muscle,Placenta,Spleen,Stomach,Thymus 
+
+# prepare gene sets
+gs_list = gene_sets_prepare(db_, cell_type = "Brain")
+
+# get cell-type by cell matrix
+# es.max = sctype_score(scRNAseqData = merge.combined.sct[["RNA"]]@scale.data, scaled = TRUE,
+#                        gs = gs_list$gs_positive)
+
+scRNAseqData = SampleMerged_Int@assays$RNA$scale.data
+scaled = TRUE
+gs = gs_list$gs_positive
+gs2 = NULL
+gene_names_to_uppercase = 0
+
+# check input matrix
+if(!is.matrix(scRNAseqData)){
+        warning("scRNAseqData doesn't seem to be a matrix")
+    } else {
+        if(sum(dim(scRNAseqData))==0){
+            warning("The dimension of input scRNAseqData matrix equals to 0, is it an empty matrix?")
+        }
+    }
+
+# marker sensitivity
+    marker_stat = sort(table(unlist(gs)), decreasing = T); 
+    marker_sensitivity = data.frame(score_marker_sensitivity = scales::rescale(as.numeric(marker_stat), to = c(0,1), from = c(length(gs),1)),
+                                    gene_ = names(marker_stat), stringsAsFactors = !1)
+    
+
+# convert gene names to Uppercase
+  if(gene_names_to_uppercase){
+        rownames(scRNAseqData) = toupper(rownames(scRNAseqData));
+    }
+    
+# subselect genes only found in data
+    names_gs_cp = names(gs); names_gs_2_cp = names(gs2);
+    gs = lapply(1:length(gs), function(d_){ 
+        GeneIndToKeep = rownames(scRNAseqData) %in% as.character(gs[[d_]]); rownames(scRNAseqData)[GeneIndToKeep]})
+    gs2 = lapply(1:length(gs2), function(d_){ 
+        GeneIndToKeep = rownames(scRNAseqData) %in% as.character(gs2[[d_]]); rownames(scRNAseqData)[GeneIndToKeep]})
+    names(gs) = names_gs_cp; names(gs2) = names_gs_2_cp;
+    cell_markers_genes_score = marker_sensitivity[marker_sensitivity$gene_ %in% unique(unlist(gs)),]
+
+    # z-scale if not
+    if(!scaled) Z <- t(scale(t(scRNAseqData))) else Z <- scRNAseqData
+    
+    # multiple by marker sensitivity
+    for(jj in 1:nrow(cell_markers_genes_score)){
+        Z[cell_markers_genes_score[jj,"gene_"], ] = Z[cell_markers_genes_score[jj,"gene_"], ] * cell_markers_genes_score[jj, "score_marker_sensitivity"]
+    }
+    
+    # subselect only with marker genes
+    Z = Z[unique(c(unlist(gs),unlist(gs2))), ]
+    
+    # combine scores
+    es = do.call("rbind", lapply(names(gs), function(gss_){ 
+        sapply(1:ncol(Z), function(j) {
+            gs_z = Z[gs[[gss_]], j]; gz_2 = Z[gs2[[gss_]], j] * -1
+            sum_t1 = (sum(gs_z) / sqrt(length(gs_z))); sum_t2 = sum(gz_2) / sqrt(length(gz_2));
+            if(is.na(sum_t2)){
+                sum_t2 = 0;
+            }
+            sum_t1 + sum_t2
+        })
+    })) 
+    
+    dimnames(es) = list(names(gs), colnames(Z))
+    es.max <- es[!apply(is.na(es) | es == "", 1, all),] # remove na rows
+
+
+# merge by cluster
+cL_resutls = do.call("rbind", lapply(unique(SampleMerged_Int@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(SampleMerged_Int@meta.data[SampleMerged_Int@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(SampleMerged_Int@meta.data$seurat_clusters==cl)), 10)
+}))
+
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+
+# define thresholds
+thresholds <- sctype_scores$ncells/4
+
+# set low-confident (low ScType score) clusters to "unknown"
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < thresholds] = "Unknown"
+print(sctype_scores[,1:3])    
+
+# Loop over clusters (assuming clusters are numbered 0 to 16)
+for (i in 0:16) {
+  # Subset data for the current cluster
+  dplot <- cL_resutls[cL_resutls$cluster == i, ]
+  
+  # Create the plot for the current cluster
+  p <- ggplot(data = dplot, aes(x = reorder(type, scores), y = scores)) +
+    geom_bar(stat = "identity") + 
+    xlab("Cell type") +
+    theme_classic() +
+    geom_hline(yintercept = thresholds[1], lty = 2) + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    ggtitle(paste("Cluster", i))  # Dynamic title based on the cluster
+  
+  # Print the plot for the current cluster
+  print(p)
+}
+
+sctype_scores_sorted <- sctype_scores %>%
+  arrange(cluster)
+cluster_to_type <- sctype_scores_sorted$type
+# Add a new column `cell_type` to the Seurat object metadata based on cluster IDs
+# Ensure that the cluster IDs in the Seurat object match the cluster IDs in sctype_scores
+SampleMerged_Int$cell_type <- cluster_to_type[as.numeric(as.character(SampleMerged_Int$seurat_clusters)) + 1]
+# Verify that the new cell type column has been added
+DimPlot(SampleMerged_Int, group.by = "cell_type")
+```
+***
+
